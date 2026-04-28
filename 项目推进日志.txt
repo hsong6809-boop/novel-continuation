@@ -1,0 +1,158 @@
+小说续写Agent - 项目推进日志
+================================
+
+日期：2026-04-27
+状态：基础框架搭建完成
+
+一、今日完成工作
+----------------
+
+1. 后端Service层重构（6个模块）
+   - llm_client.py：通用LLM调用客户端，支持多provider切换
+   - chat_service.py：对话服务，支持项目相关辅助对话
+   - continuation_service.py：续写服务，生成章节正文
+   - outline_service.py：章纲生成服务，AI生成章节大纲
+   - context_service.py：上下文构建服务，为续写和章纲提供上下文
+   - meta_service.py：元数据提取服务，从章节中提取角色状态、伏笔等
+
+2. 设置页修复
+   - 后端：保存时自动同步active_model与provider的default_model
+   - 前端SettingsPage：保存前同步active_model
+   - 前端Layout：添加fallback逻辑，确保模型显示正确
+   - 修复settings.json数据不一致问题
+
+二、核心功能清单（已完成）
+--------------------------
+
+[后端]
+- 多Provider LLM调用（DeepSeek、MiMo等）
+- 项目管理（创建、编辑、删除）
+- 章节管理（续写、编辑、删除）
+- 章纲生成（AI自动生成章节大纲）
+- 角色管理（添加、编辑、删除角色）
+- 对话助手（项目相关辅助对话）
+- 元数据提取（角色状态、伏笔、时间线）
+- 设置管理（Provider配置、模型选择）
+
+[前端]
+- 项目列表页
+- 项目编辑页
+- 章节列表页
+- 章节编辑页（续写、编辑）
+- 章纲管理页
+- 角色管理页
+- 对话助手页
+- 设置页（Provider配置、模型选择）
+
+三、技术栈
+----------
+
+- 后端：Python FastAPI + SQLite
+- 前端：React + TailwindCSS + Vite
+- AI：OpenAI兼容API（支持多Provider）
+
+四、下一步计划
+--------------
+
+- [ ] 章纲生成流程优化
+- [ ] 续写质量提升（上下文窗口、风格一致性）
+- [ ] 角色状态自动追踪
+- [ ] 伏笔管理可视化
+- [ ] 导出功能（TXT、EPUB、DOCX）
+- [ ] 部署和打包
+
+五、项目结构
+------------
+
+novel-continuation/
+├── backend/
+│   ├── main.py              # FastAPI入口
+│   ├── config.py            # 配置
+│   ├── models/
+│   │   └── database.py      # SQLite数据库
+│   ├── routers/
+│   │   ├── projects.py      # 项目路由
+│   │   ├── chapters.py      # 章节路由
+│   │   ├── outlines.py      # 章纲路由
+│   │   ├── characters.py    # 角色路由
+│   │   ├── chat.py          # 对话路由
+│   │   └── settings.py      # 设置路由
+│   ├── services/
+│   │   ├── llm_client.py    # LLM调用客户端
+│   │   ├── chat_service.py  # 对话服务
+│   │   ├── continuation_service.py  # 续写服务
+│   │   ├── outline_service.py       # 章纲服务
+│   │   ├── context_service.py       # 上下文服务
+│   │   └── meta_service.py          # 元数据服务
+│   └── data/
+│       └── settings.json    # 设置文件
+├── frontend/
+│   └── src/
+│       ├── pages/           # 页面组件
+│       ├── components/      # 通用组件
+│       └── api/             # API调用
+└── 项目推进日志.txt          # 本文件
+
+================================
+
+日期：2026-04-28
+状态：分卷大纲功能开发完成
+
+一、今日完成工作
+----------------
+
+1. 数据库层
+   - 新增 volume_outlines 表（分卷大纲存储）
+   - chapter_outlines 表新增 volume_id 字段（关联分卷）
+
+2. 后端新增
+   - services/volume_outline_service.py：分卷大纲 CRUD + AI 生成
+   - routers/projects.py 新增路由：
+     * GET    /projects/{id}/outlines/volumes          分卷列表
+     * POST   /projects/{id}/outlines/volumes          创建分卷
+     * GET    /projects/{id}/outlines/volumes/{vid}    获取单卷
+     * PUT    /projects/{id}/outlines/volumes/{vid}    更新分卷
+     * DELETE /projects/{id}/outlines/volumes/{vid}    删除分卷
+     * POST   /projects/{id}/outlines/volumes/generate AI 批量生成分卷
+     * POST   /projects/{id}/outlines/chapters/batch-generate  按卷批量生成章纲
+
+3. 后端修改
+   - services/outline_service.py：新增 batch_generate_outlines_for_volume()
+   - services/overall_outline_service.py：总纲生成 prompt 去掉卷规划，只保留整体结构
+
+4. 前端 API
+   - frontend/src/api/client.js 新增 8 个函数：
+     listVolumeOutlines, getVolumeOutline, createVolumeOutline,
+     updateVolumeOutline, deleteVolumeOutline, generateVolumeOutlines,
+     batchGenerateOutlines
+
+5. 前端组件
+   - OutlinePanel.jsx 三栏重构：
+     * 总纲编辑器：只管整体故事结构
+     * 分卷大纲编辑器：AI 一键生成 + 手动增删改 + 按卷设置章节范围
+     * 逐章章纲：按卷分组展示，每卷可批量 AI 生成，支持单章编辑
+
+6. 构建验证
+   - 后端 Python 语法检查全部通过（5个文件）
+   - 前端 vite build 通过（3.09s，386KB gzip 113KB）
+
+二、架构设计变更
+----------------
+
+- 总纲只管整体故事结构，不再混入分卷
+- 分卷大纲独立管理，作为总纲和逐章章纲的中间层
+- 逐章章纲通过 volume_id 关联分卷，按卷分组展示
+
+三、下一步计划
+--------------
+
+- [ ] 分卷大纲功能实际测试
+- [ ] 章纲生成流程优化
+- [ ] 续写质量提升（上下文窗口、风格一致性）
+- [ ] 角色状态自动追踪
+- [ ] 伏笔管理可视化
+- [ ] 导出功能（TXT、EPUB、DOCX）
+- [ ] 部署和打包
+
+================================
+记录人：Moos

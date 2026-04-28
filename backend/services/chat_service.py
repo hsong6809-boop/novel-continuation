@@ -1,0 +1,162 @@
+"""对话服务 - 与 AI 进行项目相关的辅助对话（带完整上下文）"""
+from models.database import get_db
+from services.llm_client import chat_completion, extract_content
+from utils.prompt_manager import format_prompt
+
+
+async def handle_chat(project_id: int, message: str) -> dict:
+    """处理对话请求，注入完整项目上下文"""
+    # 1. 加载对话历史
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT role, content FROM chat_history WHERE project_id=? ORDER BY created_at",
+            (project_id,),
+        )
+        history = [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+    # 2. 加载项目信息
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
+        row = await cursor.fetchone()
+        if not row:
+            return {"reply": "项目不存在", "history": []}
+        project = dict(row)
+    finally:
+        await db.close()
+
+    # 3. 加载角色信息
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT name, role, personality, appearance, background, relationships, speech_style FROM characters WHERE project_id=?",
+            (project_id,),
+        )
+        characters = [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+    # 4. 加载伏笔
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT description, planted_chapter, expected_reveal_chapter, status, importance FROM foreshadowing WHERE project_id=? ORDER BY planted_chapter",
+            (project_id,),
+        )
+        foreshadowings = [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+    # 5. 加载时间线（最近10章）
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT chapter_number, story_time_description, summary FROM timeline WHERE project_id=? ORDER BY chapter_number DESC LIMIT 10",
+            (project_id,),
+        )
+        timeline = [dict(r) for r in await cursor.fetchall()]
+        timeline.reverse()
+    finally:
+        await db.close()
+
+    # 6. 加载最近5章内容摘要
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT chapter_number, title, content, summary FROM chapters WHERE project_id=? ORDER BY chapter_number DESC LIMIT 5",
+            (project_id,),
+        )
+        recent_chapters = [dict(r) for r in await cursor.fetchall()]
+        recent_chapters.reverse()
+    finally:
+        await db.close()
+
+    # 7. 加载章纲
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT chapter_number, title, core_objective, emotional_arc, hooks FROM chapter_outlines WHERE project_id=? ORDER BY chapter_number DESC LIMIT 10",
+            (project_id,),
+        )
+        outlines = [dict(r) for r in await cursor.fetchall()]
+        outlines.reverse()
+    finally:
+        await db.close()
+
+    # 8. 构建系统提示
+    context = f"""## 项目信息
+- 书名：{project.get('name', '未命名')}
+- 类型：{project.get('genre', '未指定')}
+- 简介：{project.get('description', '暂无')}
+- 当前进度：第{project.get('current_chapter', 0)}章，约{project.get('current_words', 0)}字
+"""
+
+    # 添加角色信息
+    if characters:
+        context += "\n## 主要角色\n"
+        for c in characters:
+            context += f"- {c['name']}（{c.get('role', '未知')}）：{c.get('personality', '')}，外貌：{c.get('appearance', '')}，背景：{c.get('background', '')}，关系：{c.get('relationships', '')}，说话风格：{c.get('speech_style', '')}\n"
+
+    # 添加伏笔
+    if foreshadowings:
+        context += "\n## 伏笔线索\n"
+        for f in foreshadowings:
+            status = '已回收' if f.get('status') == 'resolved' else '待回收'
+            context += f"- [{status}] {f['description']}（埋设于第{f.get('planted_chapter', '?')}章，预计第{f.get('expected_reveal_chapter', '?')}章回收）\n"
+
+    # 添加时间线
+    if timeline:
+        context += "\n## 最近时间线\n"
+        for t in timeline:
+            context += f"- 第{t['chapter_number']}章：{t.get('story_time_description', '')} - {t.get('summary', '')}\n"
+
+    # 添加最近章节内容（截取前500字）
+    if recent_chapters:
+        context += "\n## 最近章节内容\n"
+        for ch in recent_chapters:
+            content_preview = ch.get('content', '')[:500]
+            context += f"### 第{ch['chapter_number']}章 {ch.get('title', '')}\n{content_preview}...\n\n"
+
+    # 添加章纲
+    if outlines:
+        context += "\n## 最近章纲\n"
+        for o in outlines:
+            context += f"### 第{o['chapter_number']}章 {o.get('title', '')}\n- 核心目标：{o.get('core_objective', '')}\n- 情感弧线：{o.get('emotional_arc', '')}\n- 钩子：{o.get('hooks', '')}\n\n"
+
+    system_prompt = format_prompt("chat_system", context=context)
+
+    # 9. 构建消息列表
+    messages = [{"role": "system", "content": system_prompt}]
+    # 取最近20条历史
+    for h in history[-20:]:
+        messages.append({"role": h["role"], "content": h["content"]})
+    messages.append({"role": "user", "content": message})
+
+    # 10. 调用 LLM
+    try:
+        response = await chat_completion(messages, temperature=0.7, max_tokens=2048)
+        reply = extract_content(response)
+    except ValueError as e:
+        reply = f"⚠️ 配置错误：{str(e)}"
+    except Exception as e:
+        reply = f"⚠️ 调用失败：{str(e)}"
+
+    # 11. 保存到历史
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO chat_history (project_id, role, content) VALUES (?, ?, ?)",
+            (project_id, "user", message),
+        )
+        await db.execute(
+            "INSERT INTO chat_history (project_id, role, content) VALUES (?, ?, ?)",
+            (project_id, "assistant", reply),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+    return {"reply": reply, "history": []}

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# 数据文件（包含敏感信息）
+backend/data/settings.json
+backend/data/*.db
+backend/data/*.db-journal
+backend/.env
+
+# 日志
+*.log
+nul
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

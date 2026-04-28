@@ -1,0 +1,16 @@
+{
+  "api_providers": {
+    "deepseek": {
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "",
+      "default_model": ""
+    },
+    "mimo": {
+      "base_url": "https://api.mimo.xiaomi.com/v1",
+      "api_key": "",
+      "default_model": ""
+    }
+  },
+  "active_provider": "deepseek",
+  "active_model": ""
+}

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>小说续写系统 - 架构图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  body { font-family: 'Microsoft YaHei', sans-serif; background: #f8fafc; margin: 0; padding: 20px; }
+  h1 { text-align: center; color: #1e293b; margin-bottom: 8px; }
+  .subtitle { text-align: center; color: #64748b; font-size: 14px; margin-bottom: 30px; }
+  .diagram-section { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 30px; margin: 0 auto 30px; max-width: 1200px; }
+  .diagram-section h2 { color: #334155; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-top: 0; }
+  .mermaid { display: flex; justify-content: center; }
+  .legend { background: #f1f5f9; border-radius: 8px; padding: 16px 20px; margin-top: 16px; font-size: 13px; color: #475569; }
+  .legend strong { color: #1e293b; }
+</style>
+</head>
+<body>
+
+<h1>📚 小说续写系统 — 架构与流程</h1>
+<p class="subtitle">Novel Continuation System — Architecture & Workflow</p>
+
+<!-- 1. 系统整体架构 -->
+<div class="diagram-section">
+<h2>1. 系统整体架构</h2>
+<div class="mermaid">
+graph TB
+    subgraph Frontend["🖥️ 前端 (React + Vite + TailwindCSS)"]
+        direction TB
+        PL[ProjectList<br/>项目列表页]
+        PD[ProjectDetail<br/>项目详情页]
+        SP[SettingsPage<br/>设置页]
+        subgraph Panels["功能面板"]
+            OP[OutlinePanel<br/>章纲管理]
+            CWP[WriteWizard<br/>续写向导]
+            CP[ChatPanel<br/>AI 对话]
+            CharP[CharacterPanel<br/>角色管理]
+            FP[ForeshadowingPanel<br/>伏笔追踪]
+            TP[TimelinePanel<br/>时间线]
+            STP[StylePanel<br/>风格档案]
+            IP[ImportPanel<br/>导入章节]
+        end
+        AC[API Client<br/>axios 封装]
+    end
+
+    subgraph Backend["⚙️ 后端 (FastAPI + Python)"]
+        direction TB
+        subgraph Routers["路由层"]
+            PR[projects.py<br/>项目/章纲/章节/角色/风格/伏笔/时间线/对话]
+            SR[settings.py<br/>LLM 配置]
+            IR[import_chapters.py<br/>批量导入]
+        end
+        subgraph Services["服务层"]
+            CS[continuation_service<br/>续写生成]
+            OS[outline_service<br/>章纲生成]
+            CTX[context_service<br/>上下文构建]
+            MS[meta_service<br/>元数据提取]
+            CHS[chat_service<br/>AI 对话]
+            LLM[llm_client<br/>LLM 调用封装]
+        end
+        subgraph Models["数据层"]
+            DB[(SQLite + FTS5<br/>novel.db)]
+            SC[schemas.py<br/>Pydantic 模型]
+            CFG[config.py<br/>配置管理]
+        end
+    end
+
+    subgraph External["🌐 外部服务"]
+        LLM_API[LLM API<br/>DeepSeek / OpenAI<br/>兼容接口]
+    end
+
+    PL --> AC
+    PD --> AC
+    SP --> AC
+    AC -->|"HTTP REST"| PR
+    AC -->|"HTTP REST"| SR
+    AC -->|"HTTP REST"| IR
+
+    PR --> CS & OS & CTX & MS & CHS
+    CS --> CTX & LLM
+    OS --> CTX & LLM
+    CHS --> LLM
+    MS --> LLM
+    CTX --> DB
+    PR --> DB
+    SR --> DB
+    IR --> DB
+    LLM -->|"API Call"| LLM_API
+
+    style Frontend fill:#dbeafe,stroke:#3b82f6,stroke-width:2px
+    style Backend fill:#dcfce7,stroke:#22c55e,stroke-width:2px
+    style External fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
+    style Panels fill:#eff6ff,stroke:#60a5fa,stroke-dasharray:5 5
+    style Routers fill:#f0fdf4,stroke:#4ade80,stroke-dasharray:5 5
+    style Services fill:#f0fdf4,stroke:#4ade80,stroke-dasharray:5 5
+    style Models fill:#f0fdf4,stroke:#4ade80,stroke-dasharray:5 5
+</div>
+<div class="legend">
+  <strong>图例：</strong>
+  🔵 蓝色 = 前端 &nbsp;&nbsp;
+  🟢 绿色 = 后端 &nbsp;&nbsp;
+  🟡 黄色 = 外部服务 &nbsp;&nbsp;
+  虚线框 = 子模块分组
+</div>
+</div>
+
+<!-- 2. 数据库 ER 图 -->
+<div class="diagram-section">
+<h2>2. 数据库 ER 关系</h2>
+<div class="mermaid">
+erDiagram
+    PROJECTS ||--o{ CHAPTERS : "has"
+    PROJECTS ||--o{ CHAPTER_OUTLINES : "has"
+    PROJECTS ||--o{ CHARACTERS : "has"
+    PROJECTS ||--o{ CHARACTER_SNAPSHOTS : "has"
+    PROJECTS ||--o| STYLE_PROFILES : "has"
+    PROJECTS ||--o{ FORESHADOWING : "has"
+    PROJECTS ||--o{ TIMELINE : "has"
+    PROJECTS ||--o{ CHAT_HISTORY : "has"
+    PROJECTS ||--o{ SCENE_POINTS : "has"
+    CHAPTERS ||--o{ CHAPTERS_FTS : "full-text index"
+
+    PROJECTS {
+        int id PK
+        string name UK
+        string genre
+        string description
+        string model_provider
+        string model_name
+        int target_words
+        int current_words
+        int current_chapter
+        string style_notes
+        string volume_summaries
+    }
+
+    CHAPTERS {
+        int id PK
+        int project_id FK
+        int chapter_number
+        string title
+        text content
+        int word_count
+        text summary
+        string status
+        string volume_label
+        string arc_label
+    }
+
+    CHAPTER_OUTLINES {
+        int id PK
+        int project_id FK
+        int chapter_number
+        string title
+        text core_objective
+        text emotional_arc
+        text hooks
+        int version
+    }
+
+    SCENE_POINTS {
+        int id PK
+        int project_id FK
+        int chapter_number
+        int scene_order
+        text mission
+        text key_dialogue_hint
+        string atmosphere
+        real target_words_ratio
+    }
+
+    CHARACTERS {
+        int id PK
+        int project_id FK
+        string name
+        string role
+        string age
+        text personality
+        text speech_style
+        text appearance
+        text background
+        text relationships
+        text character_arc_summary
+    }
+
+    CHARACTER_SNAPSHOTS {
+        int id PK
+        int project_id FK
+        int chapter_number
+        string character_name
+        text current_state
+    }
+
+    STYLE_PROFILES {
+        int id PK
+        int project_id FK
+        text base_analysis
+        text human_notes
+        int default_description_density
+        int default_dialogue_ratio
+        string default_pacing
+    }
+
+    FORESHADOWING {
+        int id PK
+        int project_id FK
+        text description
+        int planted_chapter
+        int expected_reveal_chapter
+        int actual_reveal_chapter
+        string status
+        string importance
+    }
+
+    TIMELINE {
+        int id PK
+        int project_id FK
+        int chapter_number
+        text story_time_description
+        string story_date
+        string duration
+        text summary
+    }
+
+    CHAT_HISTORY {
+        int id PK
+        int project_id FK
+        string role
+        text content
+    }
+</div>
+</div>
+
+<!-- 3. 核心续写流程 -->
+<div class="diagram-section">
+<h2>3. 核心续写流程</h2>
+<div class="mermaid">
+flowchart TD
+    Start(["🎬 用户点击续写第 N 章"]) --> CheckOutline{"章纲是否存在？"}
+
+    CheckOutline -->|"❌ 不存在"| GenOutline["🤖 AI 生成章纲<br/>outline_service"]
+    GenOutline --> SaveOutline["💾 保存章纲 + 场景要点<br/>chapter_outlines + scene_points"]
+    SaveOutline --> Preview
+
+    CheckOutline -->|"✅ 存在"| Preview["📋 续写向导预览<br/>context_service.build_write_preview"]
+
+    Preview --> LoadCtx["加载上下文"]
+    LoadCtx --> L1["📖 最近 5 章内容"]
+    LoadCtx --> L2["📝 当前章纲 + 场景"]
+    LoadCtx --> L3["👤 角色信息"]
+    LoadCtx --> L4["🎭 风格档案"]
+    LoadCtx --> L5["🔮 活跃伏笔"]
+    LoadCtx --> L6["⏳ 时间线"]
+
+    L1 & L2 & L3 & L4 & L5 & L6 --> BuildMsg["🔧 构建 System Prompt<br/>context_service.build_continuation_messages"]
+    BuildMsg --> UserConfirm{"用户确认/补充？"}
+
+    UserConfirm -->|"添加自定义指令"| Append["追加到 Prompt"]
+    UserConfirm -->|"直接生成"| CallLLM
+    Append --> CallLLM
+
+    CallLLM["🧠 调用 LLM API<br/>continuation_service<br/>temperature=0.8, max_tokens=4096"]
+    CallLLM --> SaveChapter["💾 保存章节正文<br/>chapters 表"]
+    SaveChapter --> UpdateProgress["📊 更新项目进度<br/>current_chapter / current_words"]
+    UpdateProgress --> Done(["✅ 续写完成"])
+
+    style Start fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
+    style Done fill:#dcfce7,stroke:#22c55e,stroke-width:2px
+    style CallLLM fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px
+    style GenOutline fill:#ede9fe,stroke:#8b5cf6,stroke-width:2px
+    style CheckOutline fill:#fee2e2,stroke:#ef4444,stroke-width:2px
+    style UserConfirm fill:#fee2e2,stroke:#ef4444,stroke-width:2px
+</div>
+</div>
+
+<!-- 4. 上下文构建流程 -->
+<div class="diagram-section">
+<h2>4. 上下文构建流程（Context Pipeline）</h2>
+<div class="mermaid">
+flowchart LR
+    subgraph Input["输入数据"]
+        P["📁 Project<br/>书名/类型/简介"]
+        O["📋 Outline<br/>章纲/场景"]
+        C["👤 Characters<br/>角色列表"]
+        S["🎭 Style<br/>风格参数"]
+        F["🔮 Foreshadowing<br/>活跃伏笔"]
+        T["⏳ Timeline<br/>时间线"]
+        R["📖 Recent Chapters<br/>最近5章"]
+    end
+
+    subgraph Build["构建 System Prompt"]
+        B1["项目信息头"]
+        B2["章纲 + 场景要点"]
+        B3["角色列表"]
+        B4["风格要求"]
+        B5["伏笔呼应提示"]
+        B6["前文回顾（摘要/前200字）"]
+        B7["自定义指令（可选）"]
+        B8["输出指令：直接续写正文"]
+    end
+
+    subgraph Output["📤 输出"]
+        MSG["messages[]<br/>单条 system prompt<br/>≈ 2000+ tokens"]
+    end
+
+    P --> B1
+    O --> B2
+    C --> B3
+    S --> B4
+    F --> B5
+    R --> B6
+    B1 & B2 & B3 & B4 & B5 & B6 & B7 & B8 --> MSG
+
+    style Input fill:#dbeafe,stroke:#3b82f6
+    style Build fill:#fef3c7,stroke:#f59e0b
+    style Output fill:#dcfce7,stroke:#22c55e
+</div>
+</div>
+
+<!-- 5. API 路由总览 -->
+<div class="diagram-section">
+<h2>5. API 路由总览</h2>
+<div class="mermaid">
+flowchart TB
+    subgraph Projects["/api/projects"]
+        direction LR
+        P1["GET /  列出所有项目"]
+        P2["POST /  创建项目"]
+        P3["GET /:id  项目详情"]
+        P4["PUT /:id  更新项目"]
+        P5["DELETE /:id  删除项目"]
+    end
+
+    subgraph Outlines["章纲管理"]
+        direction LR
+        O1["GET /:id/outlines/chapters  章纲列表"]
+        O2["GET /:id/outlines/chapters/:ch  章纲详情"]
+        O3["PUT /:id/outlines/chapters/:ch  编辑章纲"]
+        O4["POST /:id/outlines/chapters/:ch/generate  AI生成章纲"]
+        O5["POST /:id/outlines/chapters/:ch/scenes  添加场景"]
+        O6["DELETE /:id/outlines/chapters/:ch/scenes/:order  删除场景"]
+    end
+
+    subgraph Chapters["章节续写"]
+        direction LR
+        CH1["GET /:id/chapters  章节列表"]
+        CH2["GET /:id/chapters/:ch  章节内容"]
+        CH3["PUT /:id/chapters/:ch  编辑章节"]
+        CH4["POST /:id/chapters/:ch/write  续写预览"]
+        CH5["POST /:id/chapters/:ch/generate  执行续写"]
+        CH6["POST /:id/chapters/:ch/extract-meta  提取元数据"]
+    end
+
+    subgraph Others["其他模块"]
+        direction LR
+        CR["角色 CRUD<br/>/characters"]
+        ST["风格<br/>/style"]
+        FS["伏笔<br/>/foreshadowing"]
+        TL["时间线<br/>/timeline"]
+        CH["AI 对话<br/>/chat"]
+    end
+
+    style Projects fill:#dbeafe,stroke:#3b82f6
+    style Outlines fill:#fef3c7,stroke:#f59e0b
+    style Chapters fill:#dcfce7,stroke:#22c55e
+    style Others fill:#f3e8ff,stroke:#a855f7
+</div>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+    er: { useMaxWidth: true },
+    securityLevel: 'loose'
+  });
+</script>
+</body>
+</html>
