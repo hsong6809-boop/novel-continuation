@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Palette, Save, Loader2 } from 'lucide-react';
-import { getStyle, updateStyleParams } from '../api/client';
+import { Palette, Save, Loader2, Sparkles } from 'lucide-react';
+import { getStyle, updateStyleParams, analyzeStyle } from '../api/client';
 
 export default function StylePanel({ project, onRefresh }) {
   const [style, setStyle] = useState(null);
@@ -9,6 +9,7 @@ export default function StylePanel({ project, onRefresh }) {
   const [pacing, setPacing] = useState('medium');
   const [humanNotes, setHumanNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
 
   useEffect(() => { load(); }, [project.id]);
 
@@ -55,20 +56,43 @@ export default function StylePanel({ project, onRefresh }) {
       </div>
 
       {/* AI 风格分析 */}
-      {style?.base_analysis && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
-          <h2 className="text-sm font-medium text-gray-400 mb-2">📊 AI 风格分析</h2>
-          <div className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{style.base_analysis}</div>
+      <div className="bg-white/[0.02] border border-border-subtle rounded-xl p-5 mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-medium text-gray-400">📊 AI 风格分析</h2>
+          <button
+            onClick={async () => {
+              setAnalyzing(true);
+              try {
+                const data = await analyzeStyle(project.id);
+                setStyle(data);
+                alert('风格分析完成');
+              } catch (e) {
+                alert('分析失败：' + (e.response?.data?.detail || e.message));
+              } finally {
+                setAnalyzing(false);
+              }
+            }}
+            disabled={analyzing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-purple-600/20 hover:bg-purple-600/30 disabled:bg-white/[0.04] border border-purple-500/30 rounded-lg transition shadow-lg shadow-purple-500/10"
+          >
+            {analyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            {analyzing ? '分析中...' : 'AI 自动分析'}
+          </button>
         </div>
-      )}
+        {style?.base_analysis ? (
+          <div className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{style.base_analysis}</div>
+        ) : (
+          <div className="text-sm text-gray-500 italic">点击"AI 自动分析"按钮，自动分析已有章节的写作风格</div>
+        )}
+      </div>
 
       {/* 参数调节 */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6 space-y-6">
+      <div className="bg-white/[0.02] border border-border-subtle rounded-xl p-5 mb-6 space-y-6">
         <h2 className="text-sm font-medium text-gray-400">🎛️ 动态控制参数</h2>
 
         {/* 描写密度 */}
         <div>
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-3">
             <label className="text-sm">描写密度</label>
             <span className="text-sm text-purple-400 font-mono">{density}/5</span>
           </div>
@@ -82,7 +106,7 @@ export default function StylePanel({ project, onRefresh }) {
 
         {/* 对话占比 */}
         <div>
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-3">
             <label className="text-sm">对话占比</label>
             <span className="text-sm text-purple-400 font-mono">{dialogueRatio}/5</span>
           </div>
@@ -97,15 +121,15 @@ export default function StylePanel({ project, onRefresh }) {
         {/* 叙事节奏 */}
         <div>
           <label className="text-sm block mb-2">叙事节奏</label>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {['slow', 'medium', 'fast'].map(p => (
               <button
                 key={p}
                 onClick={() => setPacing(p)}
                 className={`px-4 py-3 rounded-lg text-sm transition border ${
                   pacing === p
-                    ? 'bg-purple-600/20 border-purple-500 text-purple-300'
-                    : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'
+                    ? 'bg-purple-600/20 border-purple-500 text-purple-300 shadow-lg shadow-purple-500/10'
+                    : 'bg-white/[0.03] border-border-default text-gray-400 hover:border-border-hover'
                 }`}
               >
                 {pacingLabels[p]}
@@ -116,14 +140,14 @@ export default function StylePanel({ project, onRefresh }) {
       </div>
 
       {/* 人工备注 */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
+      <div className="bg-white/[0.02] border border-border-subtle rounded-xl p-5 mb-6">
         <h2 className="text-sm font-medium text-gray-400 mb-2">📝 风格备注</h2>
         <textarea
           value={humanNotes}
           onChange={e => setHumanNotes(e.target.value)}
           placeholder="补充你对文风的要求，如：多用短句、避免成语堆砌、对话要口语化..."
           rows={4}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-purple-500 resize-none"
+          className="w-full bg-white/[0.03] border border-border-default rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-purple-500/40 resize-none transition"
         />
       </div>
 
@@ -131,7 +155,7 @@ export default function StylePanel({ project, onRefresh }) {
       <button
         onClick={handleSave}
         disabled={saving}
-        className="flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 rounded-lg font-medium transition"
+        className="flex items-center gap-2 px-6 py-3 mt-2 bg-purple-600 hover:bg-purple-500 disabled:bg-white/[0.04] rounded-lg font-medium transition shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30"
       >
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
         保存风格参数

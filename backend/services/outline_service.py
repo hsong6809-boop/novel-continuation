@@ -1,26 +1,23 @@
 """章纲生成服务"""
-import json
+import logging
 from fastapi import HTTPException
-from models.database import get_db
+from models.database import get_db_ctx
 from services.llm_client import chat_completion, extract_content
 from utils.json_parser import extract_json
 from utils.prompt_manager import format_prompt
+
+logger = logging.getLogger(__name__)
 
 
 async def generate_outline_for_chapter(project_id: int, chapter: int,
                                        custom_instructions: str = None) -> dict:
     """AI 生成章纲 + 场景要点"""
-    # 加载项目信息
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
+        # 项目信息
         cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
         project = dict(await cursor.fetchone())
-    finally:
-        await db.close()
 
-    # 加载前几章的章纲作为上下文
-    db = await get_db()
-    try:
+        # 前几章章纲
         cursor = await db.execute(
             """SELECT chapter_number, title, core_objective, emotional_arc, hooks
                FROM chapter_outlines WHERE project_id=? AND chapter_number < ?
@@ -29,39 +26,25 @@ async def generate_outline_for_chapter(project_id: int, chapter: int,
         )
         prev_outlines = [dict(r) for r in await cursor.fetchall()]
         prev_outlines.reverse()
-    finally:
-        await db.close()
 
-    # 加载角色信息
-    db = await get_db()
-    try:
+        # 角色
         cursor = await db.execute(
             "SELECT name, role, personality FROM characters WHERE project_id=?",
             (project_id,),
         )
         characters = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 加载当前章所属的卷大纲
-    volume = None
-    db = await get_db()
-    try:
+        # 所属卷大纲
         cursor = await db.execute(
             """SELECT * FROM volume_outlines WHERE project_id=?
                AND chapter_start <= ? AND chapter_end >= ?
                ORDER BY chapter_start DESC LIMIT 1""",
             (project_id, chapter, chapter),
         )
-        row = await cursor.fetchone()
-        if row:
-            volume = dict(row)
-    finally:
-        await db.close()
+        vol_row = await cursor.fetchone()
+        volume = dict(vol_row) if vol_row else None
 
-    # 加载最近 5 章正文（前 300 字）
-    db = await get_db()
-    try:
+        # 最近 5 章正文
         cursor = await db.execute(
             """SELECT chapter_number, title, content, summary
                FROM chapters WHERE project_id=? AND content != '' AND chapter_number < ?
@@ -69,23 +52,15 @@ async def generate_outline_for_chapter(project_id: int, chapter: int,
             (project_id, chapter),
         )
         recent_chapters = [dict(r) for r in reversed(await cursor.fetchall())]
-    finally:
-        await db.close()
 
-    # 加载活跃伏笔
-    db = await get_db()
-    try:
+        # 活跃伏笔
         cursor = await db.execute(
             "SELECT description, planted_chapter, expected_reveal_chapter, importance FROM foreshadowing WHERE project_id=? AND status='active' ORDER BY planted_chapter",
             (project_id,),
         )
         foreshadowings = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 加载角色快照
-    db = await get_db()
-    try:
+        # 角色快照
         cursor = await db.execute(
             """SELECT cs.character_name, cs.current_state, cs.chapter_number
                FROM character_snapshots cs
@@ -101,8 +76,6 @@ async def generate_outline_for_chapter(project_id: int, chapter: int,
             (project_id, chapter, project_id, chapter),
         )
         snapshots = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
     # 构建上下文
     context = f"""## 项目信息
@@ -179,18 +152,17 @@ async def generate_outline_for_chapter(project_id: int, chapter: int,
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
+        logger.error("章纲生成 AI 调用失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
         raise HTTPException(500, f"AI 调用失败: {str(e)}")
 
-    # 解析 JSON
     try:
         data = extract_json(content)
     except Exception:
+        logger.error("章纲 JSON 解析失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
         raise HTTPException(500, f"AI 返回的内容无法解析为 JSON: {content[:200]}")
 
     # 保存章纲
-    db = await get_db()
-    try:
-        # 删除旧章纲
+    async with get_db_ctx() as db:
         await db.execute(
             "DELETE FROM chapter_outlines WHERE project_id=? AND chapter_number=?",
             (project_id, chapter),
@@ -202,7 +174,6 @@ async def generate_outline_for_chapter(project_id: int, chapter: int,
              data.get("emotional_arc"), data.get("hooks")),
         )
 
-        # 保存场景要点
         for scene in data.get("scenes", []):
             await db.execute(
                 """INSERT INTO scene_points (project_id, chapter_number, scene_order,
@@ -214,8 +185,6 @@ async def generate_outline_for_chapter(project_id: int, chapter: int,
             )
 
         await db.commit()
-    finally:
-        await db.close()
 
     return {
         "title": data.get("title"),
@@ -229,9 +198,8 @@ async def generate_outline_for_chapter(project_id: int, chapter: int,
 async def batch_generate_outlines_for_volume(project_id: int, volume_id: int,
                                               custom_instructions: str = None) -> dict:
     """按卷批量生成章纲：AI 为该卷所有章节一次性生成章纲"""
-    # 加载分卷大纲
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
+        # 分卷大纲
         cursor = await db.execute(
             "SELECT * FROM volume_outlines WHERE project_id=? AND id=?",
             (project_id, volume_id),
@@ -240,33 +208,22 @@ async def batch_generate_outlines_for_volume(project_id: int, volume_id: int,
         if not vol:
             return {"error": "分卷大纲不存在"}
         vol = dict(vol)
-    finally:
-        await db.close()
 
-    # 加载项目信息
-    db = await get_db()
-    try:
+        # 项目信息
         cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
         project = dict(await cursor.fetchone())
-    finally:
-        await db.close()
 
-    # 加载角色
-    db = await get_db()
-    try:
+        # 角色
         cursor = await db.execute(
             "SELECT name, role, personality FROM characters WHERE project_id=?",
             (project_id,),
         )
         characters = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 加载已有章纲（本卷范围内）
-    ch_start = vol.get("chapter_start") or 1
-    ch_end = vol.get("chapter_end") or 30
-    db = await get_db()
-    try:
+        ch_start = vol.get("chapter_start") or 1
+        ch_end = vol.get("chapter_end") or 30
+
+        # 已有章纲
         cursor = await db.execute(
             """SELECT chapter_number, title, core_objective
                FROM chapter_outlines WHERE project_id=?
@@ -275,12 +232,8 @@ async def batch_generate_outlines_for_volume(project_id: int, volume_id: int,
             (project_id, ch_start, ch_end),
         )
         existing = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 加载卷前最近 5 章正文（前 300 字）
-    db = await get_db()
-    try:
+        # 卷前最近 5 章正文
         cursor = await db.execute(
             """SELECT chapter_number, title, content, summary
                FROM chapters WHERE project_id=? AND content != '' AND chapter_number < ?
@@ -288,23 +241,15 @@ async def batch_generate_outlines_for_volume(project_id: int, volume_id: int,
             (project_id, ch_start),
         )
         recent_chapters = [dict(r) for r in reversed(await cursor.fetchall())]
-    finally:
-        await db.close()
 
-    # 加载活跃伏笔
-    db = await get_db()
-    try:
+        # 活跃伏笔
         cursor = await db.execute(
             "SELECT description, planted_chapter, expected_reveal_chapter, importance FROM foreshadowing WHERE project_id=? AND status='active' ORDER BY planted_chapter",
             (project_id,),
         )
         foreshadowings = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 加载角色快照
-    db = await get_db()
-    try:
+        # 角色快照
         cursor = await db.execute(
             """SELECT cs.character_name, cs.current_state, cs.chapter_number
                FROM character_snapshots cs
@@ -320,10 +265,7 @@ async def batch_generate_outlines_for_volume(project_id: int, volume_id: int,
             (project_id, ch_start, project_id, ch_start),
         )
         snapshots = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 构建上下文
     context = f"""## 项目信息
 - 书名：{project.get('name', '未命名')}
 - 类型：{project.get('genre', '未指定')}
@@ -395,24 +337,22 @@ async def batch_generate_outlines_for_volume(project_id: int, volume_id: int,
         response = await chat_completion(messages, temperature=0.5, max_tokens=4096)
         raw_text = extract_content(response)
     except Exception as e:
+        logger.error("批量章纲生成 AI 调用失败: project=%s volume=%s", project_id, volume_id, exc_info=True)
         return {"error": f"AI 调用失败: {str(e)}"}
 
-    # 解析 JSON
     try:
         data = extract_json(raw_text)
     except Exception:
+        logger.error("批量章纲 JSON 解析失败: project=%s volume=%s", project_id, volume_id, exc_info=True)
         return {"error": f"JSON 解析失败: {raw_text[:300]}"}
 
     outlines = data.get("outlines", [])
     if not outlines:
         return {"error": "AI 未返回有效的章纲数据"}
 
-    # 写入数据库
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         for o in outlines:
             ch = o.get("chapter_number", 0)
-            # UPSERT：有则更新，无则插入
             await db.execute(
                 """INSERT INTO chapter_outlines
                    (project_id, chapter_number, volume_id, title, core_objective, emotional_arc, hooks)
@@ -428,7 +368,5 @@ async def batch_generate_outlines_for_volume(project_id: int, volume_id: int,
                  o.get("emotional_arc"), o.get("hooks")),
             )
         await db.commit()
-    finally:
-        await db.close()
 
     return {"outlines": outlines, "count": len(outlines)}

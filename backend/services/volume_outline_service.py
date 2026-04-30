@@ -1,31 +1,29 @@
 """分卷大纲管理服务"""
 import json
+import logging
 from fastapi import HTTPException
-from models.database import get_db
+from models.database import get_db_ctx
 from services.llm_client import chat_completion, extract_content
 from utils.json_parser import extract_json
 from utils.prompt_manager import format_prompt
 
+logger = logging.getLogger(__name__)
+
 
 async def list_volume_outlines(project_id: int) -> list:
     """获取项目所有分卷大纲"""
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             """SELECT * FROM volume_outlines WHERE project_id=?
                ORDER BY volume_number""",
             (project_id,),
         )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
+        return [dict(r) for r in await cursor.fetchall()]
 
 
 async def get_volume_outline(project_id: int, volume_id: int) -> dict:
     """获取单个分卷大纲"""
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT * FROM volume_outlines WHERE project_id=? AND id=?",
             (project_id, volume_id),
@@ -34,15 +32,11 @@ async def get_volume_outline(project_id: int, volume_id: int) -> dict:
         if not row:
             raise HTTPException(404, "分卷大纲不存在")
         return dict(row)
-    finally:
-        await db.close()
 
 
 async def create_volume_outline(project_id: int, data: dict) -> dict:
     """新建分卷大纲"""
-    db = await get_db()
-    try:
-        # 自动计算 volume_number
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT COALESCE(MAX(volume_number), 0) + 1 FROM volume_outlines WHERE project_id=?",
             (project_id,),
@@ -65,16 +59,13 @@ async def create_volume_outline(project_id: int, data: dict) -> dict:
         )
         await db.commit()
         new_id = cursor.lastrowid
-    finally:
-        await db.close()
 
     return await get_volume_outline(project_id, new_id)
 
 
 async def update_volume_outline(project_id: int, volume_id: int, data: dict) -> dict:
     """更新分卷大纲"""
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT id FROM volume_outlines WHERE project_id=? AND id=?",
             (project_id, volume_id),
@@ -98,16 +89,13 @@ async def update_volume_outline(project_id: int, volume_id: int, data: dict) -> 
                 values,
             )
             await db.commit()
-    finally:
-        await db.close()
 
     return await get_volume_outline(project_id, volume_id)
 
 
 async def delete_volume_outline(project_id: int, volume_id: int):
     """删除分卷大纲"""
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "DELETE FROM volume_outlines WHERE project_id=? AND id=?",
             (project_id, volume_id),
@@ -115,44 +103,33 @@ async def delete_volume_outline(project_id: int, volume_id: int):
         await db.commit()
         if cursor.rowcount == 0:
             raise HTTPException(404, "分卷大纲不存在")
-    finally:
-        await db.close()
 
 
 async def generate_volume_outlines(project_id: int, count: int = 5,
                                    custom_instructions: str = None) -> dict:
     """AI 基于总纲自动规划前 N 卷"""
-    # 加载项目信息
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
+        # 项目信息
         cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
         project = dict(await cursor.fetchone())
-    finally:
-        await db.close()
 
-    # 加载总纲
-    overall = {}
-    raw = project.get("volume_summaries")
-    if raw:
-        try:
-            overall = json.loads(raw)
-        except json.JSONDecodeError:
-            pass
+        # 总纲
+        overall = {}
+        raw = project.get("volume_summaries")
+        if raw:
+            try:
+                overall = json.loads(raw)
+            except json.JSONDecodeError:
+                pass
 
-    # 加载角色
-    db = await get_db()
-    try:
+        # 角色
         cursor = await db.execute(
             "SELECT name, role, personality FROM characters WHERE project_id=?",
             (project_id,),
         )
         characters = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 加载已有章纲
-    db = await get_db()
-    try:
+        # 已有章纲
         cursor = await db.execute(
             """SELECT chapter_number, title, core_objective
                FROM chapter_outlines WHERE project_id=?
@@ -160,12 +137,8 @@ async def generate_volume_outlines(project_id: int, count: int = 5,
             (project_id,),
         )
         outlines = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 加载最近 10 章正文（前 300 字）
-    db = await get_db()
-    try:
+        # 最近 10 章正文
         cursor = await db.execute(
             """SELECT chapter_number, title, content, summary
                FROM chapters WHERE project_id=? AND content != ''
@@ -173,63 +146,38 @@ async def generate_volume_outlines(project_id: int, count: int = 5,
             (project_id,),
         )
         recent_chapters = [dict(r) for r in reversed(await cursor.fetchall())]
-    finally:
-        await db.close()
 
-    # 加载活跃伏笔
-    db = await get_db()
-    try:
+        # 活跃伏笔
         cursor = await db.execute(
             "SELECT description, planted_chapter, expected_reveal_chapter, importance FROM foreshadowing WHERE project_id=? AND status='active' ORDER BY planted_chapter",
             (project_id,),
         )
         foreshadowings = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 加载角色快照（每个角色最新状态）
-    db = await get_db()
-    try:
-        # 获取最新章节号
+        # 角色快照
         cursor = await db.execute(
-            "SELECT MAX(chapter_number) as max_ch FROM character_snapshots WHERE project_id=?",
-            (project_id,),
+            """SELECT cs.character_name, cs.current_state, cs.chapter_number
+               FROM character_snapshots cs
+               INNER JOIN (
+                   SELECT character_name, MAX(chapter_number) as max_ch
+                   FROM character_snapshots
+                   WHERE project_id=?
+                   GROUP BY character_name
+               ) latest ON cs.character_name=latest.character_name
+                      AND cs.chapter_number=latest.max_ch
+               WHERE cs.project_id=?
+               ORDER BY cs.character_name""",
+            (project_id, project_id),
         )
-        row = await cursor.fetchone()
-        max_ch = row["max_ch"] if row and row["max_ch"] else 0
-        if max_ch > 0:
-            cursor = await db.execute(
-                """SELECT cs.character_name, cs.current_state, cs.chapter_number
-                   FROM character_snapshots cs
-                   INNER JOIN (
-                       SELECT character_name, MAX(chapter_number) as max_ch
-                       FROM character_snapshots
-                       WHERE project_id=?
-                       GROUP BY character_name
-                   ) latest ON cs.character_name=latest.character_name
-                          AND cs.chapter_number=latest.max_ch
-                   WHERE cs.project_id=?
-                   ORDER BY cs.character_name""",
-                (project_id, project_id),
-            )
-            snapshots = [dict(r) for r in await cursor.fetchall()]
-        else:
-            snapshots = []
-    finally:
-        await db.close()
+        snapshots = [dict(r) for r in await cursor.fetchall()]
 
-    # 加载时间线（最近 10 条）
-    db = await get_db()
-    try:
+        # 时间线
         cursor = await db.execute(
             "SELECT chapter_number, story_time_description, summary FROM timeline WHERE project_id=? ORDER BY chapter_number DESC LIMIT 10",
             (project_id,),
         )
         timeline = [dict(r) for r in reversed(await cursor.fetchall())]
-    finally:
-        await db.close()
 
-    # 构建上下文
     context = f"""## 项目信息
 - 书名：{project.get('name', '未命名')}
 - 类型：{project.get('genre', '未指定')}
@@ -306,21 +254,20 @@ async def generate_volume_outlines(project_id: int, count: int = 5,
         response = await chat_completion(messages, temperature=0.5, max_tokens=8192)
         raw_text = extract_content(response)
     except Exception as e:
+        logger.error("分卷大纲生成 AI 调用失败: project=%s", project_id, exc_info=True)
         return {"error": f"AI 调用失败: {str(e)}"}
 
-    # 解析 JSON
     try:
         data = extract_json(raw_text)
     except Exception:
+        logger.error("分卷大纲 JSON 解析失败: project=%s", project_id, exc_info=True)
         return {"error": f"JSON 解析失败: {raw_text[:300]}"}
 
     volumes = data.get("volumes", [])
     if not volumes:
         return {"error": "AI 未返回有效的卷数据"}
 
-    # 清除旧的分卷大纲并写入新的
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         await db.execute(
             "DELETE FROM volume_outlines WHERE project_id=?", (project_id,)
         )
@@ -336,7 +283,5 @@ async def generate_volume_outlines(project_id: int, count: int = 5,
                  v.get("chapter_start"), v.get("chapter_end")),
             )
         await db.commit()
-    finally:
-        await db.close()
 
     return {"volumes": volumes, "count": len(volumes)}

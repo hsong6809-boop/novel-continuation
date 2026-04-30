@@ -156,3 +156,186 @@ novel-continuation/
 
 ================================
 记录人：Moos
+
+## 2026-04-29
+
+### 问题审查修复（15 项全部完成）
+
+**严重问题（4 项）：**
+
+1. **projects.py updated_at 时间戳 bug** — `fields["updated_at"] = "CURRENT_TIMESTAMP"` 字符串字面量写入数据库，改为拼入 SQL SET 子句
+2. **import_chapters.py 死代码** — `raise` 后的注释行缩进错误，已清理
+3. **client.js 角色快照 API 路径不匹配** — 前端用路径参数 `/snapshots/{ch}`，后端期望 query 参数 `?chapter=ch`，已修正前端
+4. **ChapterOutlineOut 缺少 volume_id** — schemas.py 补充 `volume_id: Optional[int] = None`
+
+**中等问题（6 项）：**
+
+5. **chat_service.py DB 连接管理** — 8 个独立连接合并为 1 个
+6. **continuation_service.py / chapter_service.py 重复逻辑** — 提取 `update_project_progress()` 共享函数
+7. **meta_service.py INSERT OR REPLACE** — 改为 `INSERT ... ON CONFLICT DO UPDATE`
+8. **export.py 中文文件名** — 使用 RFC 5987 `filename*=UTF-8''` 编码
+9. **llm_client.py 无重试** — 添加指数退避重试（2 次，429/5xx 触发）
+10. **FTS 搜索优化** — 评估后认为已有合理限制（5 结果/20 关键词/排除近 15 章），无需改动
+
+**低优先级（5 项）：**
+
+11. **_gen_services.py** — 已删除
+12. **.env 文件** — .gitignore 已包含 `backend/.env`，无需改动
+13. **README 结构不一致** — 重写为实际项目结构
+14. **start.bat npm install** — 改为始终执行
+15. **缺少 style_analysis 端点** — 新增 `POST /style/analyze` + prompt 模板 + 前端按钮
+
+### 修改文件清单
+
+**后端（9 个文件）：**
+- `backend/routers/projects.py` — updated_at 修复 + style/analyze 端点
+- `backend/routers/import_chapters.py` — 死代码清理
+- `backend/routers/export.py` — 中文文件名编码
+- `backend/models/schemas.py` — ChapterOutlineOut 补充 volume_id
+- `backend/services/chat_service.py` — DB 连接合并
+- `backend/services/chapter_service.py` — 提取共享函数
+- `backend/services/continuation_service.py` — 使用共享函数
+- `backend/services/llm_client.py` — 重试机制
+- `backend/services/meta_service.py` — INSERT OR REPLACE → ON CONFLICT
+- `backend/utils/prompt_manager.py` — 新增 style_analysis 模板
+
+**前端（3 个文件）：**
+- `frontend/src/api/client.js` — 修复 snapshots 路径 + 新增 analyzeStyle API
+- `frontend/src/components/StylePanel.jsx` — 新增 AI 分析按钮
+
+**其他（3 个文件）：**
+- `start.bat` — npm install 始终执行
+- `README.md` — 重写为实际结构
+- `backend/_gen_services.py` — 已删除
+
+---
+
+### 第三轮优化（7 项任务，P0-P2）
+
+**P0-1: 续写改为流式输出**
+- `continuation_service.py`：重写为 `generate_stream()` 异步生成器，yield SSE 事件
+- `projects.py`：`/generate-stream` 端点改为 `StreamingResponse`
+- 前端 `WriteWizard.jsx`：`fetchEventSource` 实时渲染
+
+**P0-2: 章节版本回退**
+- `database.py`：新增 `chapter_versions` 表 + 迁移
+- `chapter_service.py`：`_archive_old_version()` 保存前自动归档，`save_chapter()` 调用归档
+- `projects.py`：新增 `GET /versions` + `POST /versions/{id}/restore` 端点
+- 前端 `WriteWizard.jsx`：版本历史面板 + 一键回退
+
+**P1-3: 导出格式清理**
+- `export.py`：`clean_ai_artifacts()` 清理 `[待补充]`、`[此处...]`、`===` 分隔线等 AI 痕迹
+- 应用于 TXT/DOCX/EPUB 三种导出格式
+
+**P1-4: FTS 索引自动维护**
+- `database.py`：确认已有 `chapters_ai/chapters_ad/chapters_au` 触发器自动同步 FTS5
+
+**P1-5: 错误处理**
+- 全局新增 `backend/utils/logger.py`，统一日志配置（stdout + file）
+- 所有 service 的 `except Exception: pass` 改为 `logger.warning/error(..., exc_info=True)`
+
+**P2-6: 角色快照保留历史**
+- `meta_service.py`：`INSERT OR REPLACE` → `INSERT ... ON CONFLICT DO UPDATE`
+- 保留所有历史快照，查询时用 `MAX(chapter_number)` 取最新
+
+**P2-7: 异步上下文管理统一**
+- 所有 service + router 统一使用 `get_db_ctx()` async context manager
+- 消除全部 `get_db()` + try/finally 模式
+- 涉及文件：`chapter_service.py`、`chat_service.py`、`context_service.py`、`continuation_service.py`、`fts_service.py`、`meta_service.py`、`outline_service.py`、`overall_outline_service.py`、`preprocess_service.py`、`volume_outline_service.py`、`routers/projects.py`、`routers/import_chapters.py`
+
+### 修改文件清单
+
+**后端（14 个文件）：**
+- `backend/models/database.py` — chapter_versions 表 + get_db_ctx
+- `backend/utils/logger.py` — 新建
+- `backend/services/continuation_service.py` — 流式重写
+- `backend/services/chapter_service.py` — 版本归档 + 回退 + get_db_ctx
+- `backend/services/chat_service.py` — get_db_ctx
+- `backend/services/context_service.py` — get_db_ctx
+- `backend/services/fts_service.py` — get_db_ctx
+- `backend/services/meta_service.py` — ON CONFLICT + get_db_ctx
+- `backend/services/outline_service.py` — get_db_ctx
+- `backend/services/overall_outline_service.py` — get_db_ctx
+- `backend/services/preprocess_service.py` — get_db_ctx
+- `backend/services/volume_outline_service.py` — get_db_ctx
+- `backend/routers/projects.py` — 流式端点 + 版本端点 + get_db_ctx
+- `backend/routers/import_chapters.py` — get_db_ctx
+- `backend/routers/export.py` — AI 痕迹清理
+
+**前端（2 个文件）：**
+- `frontend/src/api/client.js` — 版本 API
+- `frontend/src/components/WriteWizard.jsx` — 流式渲染 + 版本面板
+
+---
+
+### UI 布局结构重构
+
+**目标**：从 className 微调升级为 JSX 结构重组。
+
+**WriteWizard 两栏布局：**
+- 根容器改为 `grid grid-cols-1 lg:grid-cols-2 gap-6`
+- 书籍信息压缩为横向紧凑条横跨两列
+- 左栏：章节选择 + 自定义指令 + 操作按钮
+- 右栏（sticky）：续写输出 + 版本历史 + 辅助对话
+
+**ProjectList 卡片网格 + 统计 + Modal：**
+- 新建表单改为 Modal overlay（`fixed inset-0 z-50`）
+- 项目列表改为 `grid grid-cols-1 md:grid-cols-2 gap-4`
+- 标题栏增加统计摘要行（项目数/总章节/总字数/平均进度）
+
+**CharacterPanel 网格卡片：**
+- 列表改为 `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4`
+- 每个角色卡片：头像（首字母）+ 名字 + 角色标签 + 性格摘要
+- 统一 create/edit 表单在顶部展开
+
+**其他面板微调：**
+- ForeshadowPanel：标题+筛选标签合并工具栏
+- TimelinePanel：事件卡片加左侧彩色条 `border-l-2 border-cyan-500`
+- SettingsPage：锚点导航条 + section icon
+
+---
+
+### 水墨丹青风格全面换肤
+
+**背景**：布局改善后配色仍太冷（蓝紫科技感），改为水墨风格：有纹理、有温度、中国风意境。
+
+**CSS 设计系统重写 (`index.css`)：**
+- 色系：冷黑 `#0a0a0c` → 暖黑 `#0c0a09`，所有 border/surface 改为暖色调 `rgba(255, 235, 210, ...)`
+- 背景：多层径向渐变模拟水墨晕染 + SVG 噪点纹理覆盖（宣纸质感）
+- 强调色：朱砂红 `#c05030` / 赭石金 `#b8860b` / 墨青 `#5a7a7a`
+- 新增工具类：`.ink-card`（宣纸卡片）、`.ink-card-accent`（朱砂竖条）、`.ink-divider`（墨色分隔线）、`.ink-wash-bg`（晕染背景）、`.text-gradient-ink`（暖金渐变文本）
+- 输入框 focus、选区、滚动条、动画全部改为暖色
+
+**WriteWizard 三段式重构：**
+- 左栏合并为单个 `ink-card` 容器，三段式布局：
+  - 章节控制条（紧凑横向）
+  - 上下文预览（可折叠，章纲+风格合并）
+  - 自定义指令 + 操作区（sticky 底部，`ink-divider` 分隔）
+- 右栏输出区/版本历史/对话区改用 `ink-card` + 左侧彩色竖条
+- 空状态文案改为意境化表达
+
+**ProjectList 水墨化：**
+- 新增 Hero 区：大标题 + 墨色装饰线 + 副标题「笔耕不辍，墨香长存」
+- 统计从 4 个小卡片改为单行内联（`·` 分隔）
+- 项目卡片改用 `.ink-card` + `.ink-card-accent`（朱砂竖条）
+- 进度条改为朱砂→赭石暖色渐变
+- 空状态改为「尚无篇章，落笔生花」
+
+**全组件蓝色→暖色统一（12 个文件）：**
+所有 `text-blue-400`、`bg-blue-600`、`focus:ring-blue-500` 等统一替换为 `amber` 暖色系
+
+### 修改文件清单
+
+**UI 布局重构 + 水墨换肤（12 个前端文件）：**
+- `frontend/src/index.css` — 水墨设计系统全面重写
+- `frontend/src/components/Layout.jsx` — header 暖色
+- `frontend/src/pages/ProjectList.jsx` — Hero 区 + 内联统计 + 水墨卡片 + Modal
+- `frontend/src/components/WriteWizard.jsx` — 两栏布局 + 三段式 + 水墨风格
+- `frontend/src/pages/ProjectDetail.jsx` — 侧边栏暖色
+- `frontend/src/pages/SettingsPage.jsx` — 锚点导航 + 暖色统一
+- `frontend/src/components/ChatPanel.jsx` — 暖色气泡
+- `frontend/src/components/ImportPanel.jsx` — 暖色按钮/提示
+- `frontend/src/components/OutlinePanel.jsx` — 暖色标签/焦点
+- `frontend/src/components/ForeshadowPanel.jsx` — 暖色按钮
+- `frontend/src/components/CharacterPanel.jsx` — 暖色卡片网格
+- `frontend/src/components/TimelinePanel.jsx` — 暖色交互

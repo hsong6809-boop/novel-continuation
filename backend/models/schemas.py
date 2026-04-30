@@ -57,6 +57,7 @@ class ChapterOutlineOut(BaseModel):
     id: int
     project_id: int
     chapter_number: int
+    volume_id: Optional[int] = None
     title: Optional[str] = None
     core_objective: Optional[str] = None
     emotional_arc: Optional[str] = None

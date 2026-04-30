@@ -69,7 +69,7 @@ function OverallOutlineEditor({ project }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-gray-500">
+      <div className="flex items-center justify-center py-8 text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />加载中...
       </div>
     );
@@ -84,29 +84,29 @@ function OverallOutlineEditor({ project }) {
         <div className="flex gap-2">
           {outline && !editing && (
             <button onClick={startEdit}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm transition">
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-300 border border-border-subtle rounded-lg text-sm transition">
               <Edit3 className="w-3.5 h-3.5" />编辑
             </button>
           )}
           <button onClick={handleGenerate} disabled={generating}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 rounded-lg text-sm transition">
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm transition shadow-lg shadow-purple-500/20">
             {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
             {outline ? '重新生成' : 'AI 生成总纲'}
           </button>
         </div>
       </div>
 
-      {error && <div className="text-sm text-red-400 bg-red-900/20 rounded-lg px-3 py-2">{error}</div>}
+      {error && <div className="text-sm text-red-400 bg-red-500/[0.08] border border-red-500/20 rounded-lg px-3 py-2">{error}</div>}
 
       {editing && (
         <div className="space-y-2">
           <textarea value={editText} onChange={e => setEditText(e.target.value)}
-            className="w-full h-96 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y" />
+            className="w-full h-96 bg-white/[0.03] border border-border-default rounded-lg px-4 py-3 text-sm font-mono focus:ring-1 focus:ring-amber-500/30 resize-y" />
           <div className="flex justify-end gap-2">
             <button onClick={() => setEditing(false)}
-              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-lg text-sm transition">取消</button>
+              className="px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-400 border border-border-subtle rounded-lg text-sm transition">取消</button>
             <button onClick={handleSave}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded-lg text-sm transition">
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-sm transition shadow-lg shadow-green-500/20">
               <Save className="w-3.5 h-3.5" />保存
             </button>
           </div>
@@ -114,41 +114,41 @@ function OverallOutlineEditor({ project }) {
       )}
 
       {!editing && outline && (
-        <div className="space-y-4">
+        <div className="space-y-3 animate-fade-in">
           <div className="grid grid-cols-2 gap-3">
             {outline.premise && (
-              <div className="bg-gray-800/50 rounded-lg p-3">
+              <div className="bg-white/[0.02] border border-border-subtle rounded-lg p-3">
                 <div className="text-xs text-gray-500 mb-1">故事前提</div>
                 <div className="text-sm text-gray-300">{outline.premise}</div>
               </div>
             )}
             {outline.main_conflict && (
-              <div className="bg-gray-800/50 rounded-lg p-3">
+              <div className="bg-white/[0.02] border border-border-subtle rounded-lg p-3">
                 <div className="text-xs text-gray-500 mb-1">主要矛盾</div>
                 <div className="text-sm text-gray-300">{outline.main_conflict}</div>
               </div>
             )}
             {outline.themes && (
-              <div className="bg-gray-800/50 rounded-lg p-3">
+              <div className="bg-white/[0.02] border border-border-subtle rounded-lg p-3">
                 <div className="text-xs text-gray-500 mb-1">核心主题</div>
                 <div className="text-sm text-gray-300">{outline.themes}</div>
               </div>
             )}
             {outline.character_arcs && (
-              <div className="bg-gray-800/50 rounded-lg p-3">
+              <div className="bg-white/[0.02] border border-border-subtle rounded-lg p-3">
                 <div className="text-xs text-gray-500 mb-1">角色弧线</div>
                 <div className="text-sm text-gray-300">{outline.character_arcs}</div>
               </div>
             )}
           </div>
           {outline.story_structure && (
-            <div className="bg-gray-800/50 rounded-lg p-3">
+            <div className="bg-white/[0.02] border border-border-subtle rounded-lg p-3">
               <div className="text-xs text-gray-500 mb-1">故事结构</div>
               <div className="text-sm text-gray-300">{outline.story_structure}</div>
             </div>
           )}
           {outline.future_directions && (
-            <div className="bg-gray-800/50 rounded-lg p-3">
+            <div className="bg-white/[0.02] border border-border-subtle rounded-lg p-3">
               <div className="text-xs text-gray-500 mb-1">后续方向</div>
               <div className="text-sm text-gray-300">{outline.future_directions}</div>
             </div>
@@ -157,15 +157,15 @@ function OverallOutlineEditor({ project }) {
       )}
 
       {!editing && !outline && !generating && (
-        <div className="text-center py-12 text-gray-500">
-          <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-50" />
+        <div className="text-center py-8 text-gray-500">
+          <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p>暂无总纲</p>
           <p className="text-sm mt-1">点击「AI 生成总纲」，AI 将根据项目信息和已有章节自动规划</p>
         </div>
       )}
 
       {generating && (
-        <div className="flex items-center justify-center py-12 text-gray-500">
+        <div className="flex items-center justify-center py-8 text-gray-500">
           <Loader2 className="w-6 h-6 animate-spin mr-3" />
           <div>
             <div className="text-sm font-medium">AI 正在生成总纲...</div>
@@ -270,7 +270,7 @@ function VolumeOutlinePanel({ project }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-gray-500">
+      <div className="flex items-center justify-center py-8 text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />加载中...
       </div>
     );
@@ -285,41 +285,41 @@ function VolumeOutlinePanel({ project }) {
         </span>
         <div className="flex gap-2">
           <button onClick={() => setShowAddForm(!showAddForm)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm transition">
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-300 border border-border-subtle rounded-lg text-sm transition">
             <Plus className="w-3.5 h-3.5" />新增分卷
           </button>
           <button onClick={handleAIGenerate} disabled={generating}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 rounded-lg text-sm transition">
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm transition shadow-lg shadow-purple-500/20">
             {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
             AI 生成分卷
           </button>
         </div>
       </div>
 
-      {error && <div className="text-sm text-red-400 bg-red-900/20 rounded-lg px-3 py-2">{error}</div>}
+      {error && <div className="text-sm text-red-400 bg-red-500/[0.08] border border-red-500/20 rounded-lg px-3 py-2">{error}</div>}
 
       {/* 新增分卷表单 */}
       {showAddForm && (
-        <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 space-y-3">
+        <div className="bg-white/[0.02] border border-border-default rounded-lg p-4 space-y-3 animate-fade-in">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 block mb-1">卷号</label>
               <input type="number" value={newVolume.volume_number}
                 onChange={e => setNewVolume({ ...newVolume, volume_number: Number(e.target.value) })}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">卷名</label>
               <input value={newVolume.volume_name} placeholder="如：风起云涌"
                 onChange={e => setNewVolume({ ...newVolume, volume_name: e.target.value })}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30" />
             </div>
           </div>
           <div className="flex justify-end gap-2">
             <button onClick={() => setShowAddForm(false)}
               className="px-3 py-1.5 text-gray-400 hover:text-gray-300 text-sm">取消</button>
             <button onClick={handleAdd}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded-lg text-sm transition">
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-sm transition shadow-lg shadow-green-500/20">
               <Plus className="w-3.5 h-3.5" />创建
             </button>
           </div>
@@ -328,15 +328,15 @@ function VolumeOutlinePanel({ project }) {
 
       {/* 分卷列表 */}
       {volumes.length === 0 && !generating && (
-        <div className="text-center py-12 text-gray-500">
-          <Layers className="w-10 h-10 mx-auto mb-3 opacity-50" />
+        <div className="text-center py-8 text-gray-500">
+          <Layers className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p>暂无分卷大纲</p>
           <p className="text-sm mt-1">点击「AI 生成分卷」自动规划，或手动新增</p>
         </div>
       )}
 
       {volumes.map(vol => (
-        <div key={vol.id} className="bg-gray-800/30 border border-gray-800 rounded-lg overflow-hidden">
+        <div key={vol.id} className="bg-white/[0.015] border border-border-subtle rounded-lg overflow-hidden">
           {editingId === vol.id ? (
             /* 编辑模式 */
             <div className="p-4 space-y-3">
@@ -345,52 +345,52 @@ function VolumeOutlinePanel({ project }) {
                   <label className="text-xs text-gray-500 block mb-1">卷名</label>
                   <input value={editForm.volume_name}
                     onChange={e => setEditForm({ ...editForm, volume_name: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                    className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">起始章节</label>
                   <input type="number" value={editForm.chapter_start}
                     onChange={e => setEditForm({ ...editForm, chapter_start: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                    className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">结束章节</label>
                   <input type="number" value={editForm.chapter_end}
                     onChange={e => setEditForm({ ...editForm, chapter_end: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                    className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30" />
                 </div>
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">概要</label>
                 <textarea value={editForm.summary} rows={2}
                   onChange={e => setEditForm({ ...editForm, summary: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-y" />
+                  className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 resize-y" />
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">核心事件</label>
                 <textarea value={editForm.core_events} rows={2}
                   onChange={e => setEditForm({ ...editForm, core_events: e.target.value })}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-y" />
+                  className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 resize-y" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">情感基调</label>
                   <input value={editForm.emotional_tone}
                     onChange={e => setEditForm({ ...editForm, emotional_tone: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                    className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">关键转折</label>
                   <input value={editForm.key_turning_point}
                     onChange={e => setEditForm({ ...editForm, key_turning_point: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                    className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30" />
                 </div>
               </div>
               <div className="flex justify-end gap-2">
                 <button onClick={() => setEditingId(null)}
                   className="px-3 py-1.5 text-gray-400 hover:text-gray-300 text-sm">取消</button>
                 <button onClick={handleSaveEdit}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded-lg text-sm transition">
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-sm transition shadow-lg shadow-green-500/20">
                   <Save className="w-3.5 h-3.5" />保存
                 </button>
               </div>
@@ -400,7 +400,7 @@ function VolumeOutlinePanel({ project }) {
             <div className="p-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-purple-400 bg-purple-900/30 px-2 py-0.5 rounded">
+                  <span className="text-xs font-mono text-purple-400 bg-purple-500/[0.1] px-2 py-0.5 rounded border border-purple-500/20">
                     V{vol.volume_number}
                   </span>
                   <span className="text-sm font-medium">{vol.volume_name || '未命名卷'}</span>
@@ -412,12 +412,12 @@ function VolumeOutlinePanel({ project }) {
                 </div>
                 <div className="flex gap-1">
                   <button onClick={() => startEdit(vol)}
-                    className="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition"
+                    className="p-1.5 text-gray-400 hover:text-gray-200 hover:bg-white/[0.04] rounded transition"
                     title="编辑">
                     <Edit3 className="w-3.5 h-3.5" />
                   </button>
                   <button onClick={() => handleDelete(vol)}
-                    className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded transition"
+                    className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-white/[0.04] rounded transition"
                     title="删除">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -437,7 +437,7 @@ function VolumeOutlinePanel({ project }) {
       ))}
 
       {generating && (
-        <div className="flex items-center justify-center py-12 text-gray-500">
+        <div className="flex items-center justify-center py-8 text-gray-500">
           <Loader2 className="w-6 h-6 animate-spin mr-3" />
           <div>
             <div className="text-sm font-medium">AI 正在生成分卷大纲...</div>
@@ -623,17 +623,17 @@ function ChapterOutlinePanel({ project, focusChapter }) {
 
   return (
     <div className="space-y-4">
-      {error && <div className="text-sm text-red-400 bg-red-900/20 rounded-lg px-3 py-2">{error}</div>}
+      {error && <div className="text-sm text-red-400 bg-red-500/[0.08] border border-red-500/20 rounded-lg px-3 py-2">{error}</div>}
 
       {/* 分卷选择器 + 批量生成 */}
       {volumes.length > 0 && (
-        <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 space-y-3">
+        <div className="bg-white/[0.02] border border-border-subtle rounded-lg p-4 space-y-3">
           <div className="flex items-center gap-3">
             <label className="text-sm text-gray-400 shrink-0">选择分卷：</label>
             <select
               value={selectedVolumeId || ''}
               onChange={e => setSelectedVolumeId(Number(e.target.value) || null)}
-              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
+              className="flex-1 bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-purple-500/40"
             >
               {volumes.map(v => (
                 <option key={v.id} value={v.id}>
@@ -648,12 +648,12 @@ function ChapterOutlinePanel({ project, focusChapter }) {
                 value={batchInstructions}
                 onChange={e => setBatchInstructions(e.target.value)}
                 placeholder="自定义指令（可选）：如本卷重点铺设世界观..."
-                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500"
+                className="flex-1 bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-purple-500/40"
               />
               <button
                 onClick={() => handleBatchGenerate(selectedVolumeId)}
                 disabled={batchGenerating === selectedVolumeId}
-                className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 rounded-lg text-sm transition shrink-0"
+                className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-sm transition shrink-0 shadow-lg shadow-purple-500/20"
               >
                 {batchGenerating === selectedVolumeId
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -666,21 +666,21 @@ function ChapterOutlinePanel({ project, focusChapter }) {
       )}
 
       {outlines.length === 0 && (
-        <div className="text-center py-12 text-gray-500">
-          <FileText className="w-10 h-10 mx-auto mb-3 opacity-50" />
+        <div className="text-center py-8 text-gray-500">
+          <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p>暂无章纲</p>
           <p className="text-sm mt-1">请先在「分卷大纲」中创建分卷，然后使用批量生成</p>
         </div>
       )}
 
       {filteredGrouped.map((group, gi) => (
-        <div key={gi} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <div key={gi} className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
           {/* 卷标题栏 */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gray-800/50 border-b border-gray-800">
+          <div className="flex items-center justify-between px-4 py-3 bg-white/[0.02] border-b border-border-subtle">
             <div className="flex items-center gap-2">
               {group.volume ? (
                 <>
-                  <span className="text-xs font-mono text-purple-400 bg-purple-900/30 px-2 py-0.5 rounded">
+                  <span className="text-xs font-mono text-purple-400 bg-purple-500/[0.1] px-2 py-0.5 rounded border border-purple-500/20">
                     V{group.volume.volume_number}
                   </span>
                   <span className="text-sm font-medium">{group.volume.volume_name || '未命名卷'}</span>
@@ -692,7 +692,7 @@ function ChapterOutlinePanel({ project, focusChapter }) {
             </div>
             {group.volume && (
               <button onClick={() => handleBatchGenerate(group.volume.id)} disabled={batchGenerating === group.volume.id}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600/80 hover:bg-purple-700 disabled:opacity-50 rounded-lg text-xs transition">
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600/80 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-xs transition shadow-lg shadow-purple-500/15">
                 {batchGenerating === group.volume.id
                   ? <Loader2 className="w-3 h-3 animate-spin" />
                   : <Wand2 className="w-3 h-3" />}
@@ -705,9 +705,9 @@ function ChapterOutlinePanel({ project, focusChapter }) {
           {group.chapters.map(o => (
             <div key={o.chapter_number} ref={focusChapter === o.chapter_number ? focusRef : undefined}>
               <div
-                className={`grid grid-cols-[80px_1fr_1fr_1fr_100px] gap-2 px-4 py-3 cursor-pointer hover:bg-gray-800/30 transition border-b border-gray-800/50 ${
-                  expanded === o.chapter_number ? 'bg-gray-800/50' : ''
-                } ${focusChapter === o.chapter_number ? 'ring-1 ring-green-500/30' : ''}`}
+                className={`grid grid-cols-[80px_1fr_1fr_1fr_100px] gap-2 px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition border-b border-border-subtle/50 ${
+                  expanded === o.chapter_number ? 'bg-white/[0.02]' : ''
+                } ${focusChapter === o.chapter_number ? 'ring-1 ring-green-500/30 bg-green-500/[0.03]' : ''}`}
                 onClick={() => toggleExpand(o.chapter_number)}
               >
                 <div className="flex items-center gap-1.5">
@@ -722,7 +722,7 @@ function ChapterOutlinePanel({ project, focusChapter }) {
                 <div className="flex justify-end">
                   <button onClick={(e) => { e.stopPropagation(); handleGenerate(o.chapter_number); }}
                     disabled={generating}
-                    className="p-1.5 text-yellow-400 hover:bg-gray-700 rounded transition" title="AI 生成章纲">
+                    className="p-1.5 text-yellow-400 hover:bg-white/[0.04] rounded transition" title="AI 生成章纲">
                     {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                   </button>
                 </div>
@@ -730,54 +730,54 @@ function ChapterOutlinePanel({ project, focusChapter }) {
 
               {/* 展开编辑区 */}
               {expanded === o.chapter_number && editForm && (
-                <div className="border-b border-gray-800 px-5 py-4 space-y-4 bg-gray-900/50">
+                <div className="border-b border-border-subtle px-5 py-4 space-y-4 bg-white/[0.015] animate-fade-in">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-xs text-gray-500 block mb-1">标题</label>
                       <input value={editForm.title}
                         onChange={e => setEditForm({ ...editForm, title: e.target.value })}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                        className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30" />
                     </div>
                     <div>
                       <label className="text-xs text-gray-500 block mb-1">核心目标</label>
                       <input value={editForm.core_objective}
                         onChange={e => setEditForm({ ...editForm, core_objective: e.target.value })}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                        className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30" />
                     </div>
                   </div>
                   <div>
                     <label className="text-xs text-gray-500 block mb-1">情感走向</label>
                     <input value={editForm.emotional_arc}
                       onChange={e => setEditForm({ ...editForm, emotional_arc: e.target.value })}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                      className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30" />
                   </div>
                   <div>
                     <label className="text-xs text-gray-500 block mb-1">章末钩子</label>
                     <input value={editForm.hooks}
                       onChange={e => setEditForm({ ...editForm, hooks: e.target.value })}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+                      className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30" />
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-xs text-gray-500">场景要点</label>
-                      <button onClick={addScene} className="text-xs text-blue-400 hover:text-blue-300">+ 添加场景</button>
+                      <button onClick={addScene} className="text-xs text-amber-400/70 hover:text-amber-300 transition">+ 添加场景</button>
                     </div>
                     {editForm.scenes?.map((s, i) => (
-                      <div key={i} className="bg-gray-800/50 rounded-lg p-3 mb-2 space-y-2">
+                      <div key={i} className="bg-white/[0.02] border border-border-subtle rounded-lg p-3 mb-2 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-xs text-gray-500">场景 {i + 1}</span>
-                          <button onClick={() => removeScene(i)} className="text-xs text-red-400 hover:text-red-300">删除</button>
+                          <button onClick={() => removeScene(i)} className="text-xs text-red-400 hover:text-red-300 transition">删除</button>
                         </div>
                         <input value={s.mission || ''} onChange={e => updateScene(i, 'mission', e.target.value)}
                           placeholder="场景任务"
-                          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" />
+                          className="w-full bg-white/[0.03] border border-border-default rounded px-3 py-1.5 text-sm focus:ring-1 focus:ring-amber-500/30" />
                         <div className="grid grid-cols-2 gap-2">
                           <input value={s.key_dialogue_hint || ''} onChange={e => updateScene(i, 'key_dialogue_hint', e.target.value)}
                             placeholder="关键对话提示"
-                            className="bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" />
+                            className="bg-white/[0.03] border border-border-default rounded px-3 py-1.5 text-sm focus:ring-1 focus:ring-amber-500/30" />
                           <input value={s.atmosphere || ''} onChange={e => updateScene(i, 'atmosphere', e.target.value)}
                             placeholder="氛围要点"
-                            className="bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" />
+                            className="bg-white/[0.03] border border-border-default rounded px-3 py-1.5 text-sm focus:ring-1 focus:ring-amber-500/30" />
                         </div>
                         <div>
                           <div className="flex items-center justify-between mb-1">
@@ -788,7 +788,7 @@ function ChapterOutlinePanel({ project, focusChapter }) {
                             type="range" min="0.1" max="0.5" step="0.05"
                             value={s.target_words_ratio || 0.25}
                             onChange={e => updateScene(i, 'target_words_ratio', parseFloat(e.target.value))}
-                            className="w-full accent-purple-500"
+                            className="w-full"
                           />
                         </div>
                       </div>
@@ -796,7 +796,7 @@ function ChapterOutlinePanel({ project, focusChapter }) {
                   </div>
                   <div className="flex justify-end">
                     <button onClick={() => handleSave(o.chapter_number)}
-                      className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm transition">
+                      className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm transition shadow-lg shadow-green-500/20">
                       <Save className="w-4 h-4" />保存
                     </button>
                   </div>
@@ -827,38 +827,36 @@ export default function OutlinePanel({ project, onRefresh, focusChapter }) {
     { key: 'chapters', label: '逐章章纲', icon: FileText, color: 'green' },
   ];
 
+  const colorMap = {
+    purple: { active: 'bg-purple-500/[0.12] text-purple-400 border-purple-500/25' },
+    blue: { active: 'bg-amber-500/[0.1] text-amber-400/70 border-amber-500/20' },
+    green: { active: 'bg-green-500/[0.12] text-green-400 border-green-500/25' },
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
       <div className="flex items-center gap-3 mb-6">
-        <FileText className="w-6 h-6 text-green-400" />
-        <h1 className="text-xl font-bold">大纲管理</h1>
+        <FileText className="w-5 h-5 text-green-400" />
+        <h1 className="text-xl font-bold text-gradient-ink">大纲管理</h1>
       </div>
 
       {/* 三栏切换 */}
-      <div className="flex gap-1 mb-6 bg-gray-900 border border-gray-800 rounded-lg p-1">
+      <div className="flex gap-1 mb-6 bg-surface-1 border border-border-subtle rounded-lg p-1">
         {tabs.map(t => {
           const Icon = t.icon;
           const isActive = activeSection === t.key;
+          const c = colorMap[t.color];
           return (
             <button key={t.key} onClick={() => setActiveSection(t.key)}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-sm transition ${
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-sm transition border ${
                 isActive
-                  ? `bg-${t.color}-600/20 text-${t.color}-400 border border-${t.color}-500/30`
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-              style={isActive ? {
-                backgroundColor: t.color === 'purple' ? 'rgba(147,51,234,0.15)' :
-                  t.color === 'blue' ? 'rgba(59,130,246,0.15)' : 'rgba(34,197,94,0.15)',
-                color: t.color === 'purple' ? '#c084fc' :
-                  t.color === 'blue' ? '#60a5fa' : '#4ade80',
-                borderColor: t.color === 'purple' ? 'rgba(147,51,234,0.3)' :
-                  t.color === 'blue' ? 'rgba(59,130,246,0.3)' : 'rgba(34,197,94,0.3)',
-                borderWidth: '1px',
-              } : {}}>
+                  ? c.active
+                  : 'border-transparent text-gray-400 hover:text-gray-200 hover:bg-white/[0.02]'
+              }`}>
               <Icon className="w-4 h-4" />
               {t.label}
               {t.key === 'chapters' && outlines.length > 0 && (
-                <span className="text-xs bg-gray-800 px-1.5 py-0.5 rounded-full">{outlines.length}</span>
+                <span className="text-xs bg-white/[0.06] px-1.5 py-0.5 rounded-full">{outlines.length}</span>
               )}
             </button>
           );
@@ -866,7 +864,7 @@ export default function OutlinePanel({ project, onRefresh, focusChapter }) {
       </div>
 
       {/* 内容区 */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="bg-surface-1 border border-border-subtle rounded-xl p-6">
         {activeSection === 'overall' && <OverallOutlineEditor project={project} />}
         {activeSection === 'volumes' && <VolumeOutlinePanel project={project} />}
         {activeSection === 'chapters' && <ChapterOutlinePanel project={project} focusChapter={focusChapter} />}

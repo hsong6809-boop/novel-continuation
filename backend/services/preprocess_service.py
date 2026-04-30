@@ -1,6 +1,6 @@
 """导入后预处理服务 - 从已导入章节中批量提取角色、伏笔、时间线"""
 import json
-from models.database import get_db
+from models.database import get_db_ctx
 from services.llm_client import chat_completion, extract_content
 from utils.json_parser import extract_json
 from utils.prompt_manager import format_prompt
@@ -8,17 +8,12 @@ from utils.prompt_manager import format_prompt
 
 async def preprocess_imported_chapters(project_id: int) -> dict:
     """对所有已导入章节执行一次性预处理：角色档案 + 伏笔 + 时间线 + 分卷大纲"""
-    # 加载项目信息
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
+        # 加载项目信息
         cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
         project = dict(await cursor.fetchone())
-    finally:
-        await db.close()
 
-    # 加载所有章节
-    db = await get_db()
-    try:
+        # 加载所有章节
         cursor = await db.execute(
             """SELECT chapter_number, title, content, word_count
                FROM chapters WHERE project_id=? AND content != ''
@@ -26,8 +21,6 @@ async def preprocess_imported_chapters(project_id: int) -> dict:
             (project_id,),
         )
         chapters = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
     if not chapters:
         return {"error": "没有可预处理的章节"}
@@ -107,8 +100,7 @@ async def preprocess_imported_chapters(project_id: int) -> dict:
     # 保存角色档案
     characters = data.get("characters", [])
     if characters:
-        db = await get_db()
-        try:
+        async with get_db_ctx() as db:
             for c in characters:
                 if not c.get("name"):
                     continue
@@ -122,14 +114,11 @@ async def preprocess_imported_chapters(project_id: int) -> dict:
                 )
                 result["characters"] += 1
             await db.commit()
-        finally:
-            await db.close()
 
     # 保存伏笔
     foreshadowings = data.get("foreshadowings", [])
     if foreshadowings:
-        db = await get_db()
-        try:
+        async with get_db_ctx() as db:
             for fs in foreshadowings:
                 if not fs.get("description"):
                     continue
@@ -143,14 +132,11 @@ async def preprocess_imported_chapters(project_id: int) -> dict:
                 )
                 result["foreshadowings"] += 1
             await db.commit()
-        finally:
-            await db.close()
 
     # 保存时间线
     timeline = data.get("timeline", [])
     if timeline:
-        db = await get_db()
-        try:
+        async with get_db_ctx() as db:
             for t in timeline:
                 if not t.get("story_time_description"):
                     continue
@@ -162,22 +148,17 @@ async def preprocess_imported_chapters(project_id: int) -> dict:
                 )
                 result["timeline"] += 1
             await db.commit()
-        finally:
-            await db.close()
 
     # 保存分卷大纲到 project.volume_summaries
     volume_outline = data.get("volume_outline") or data.get("volumes")
     if volume_outline:
         outline_text = json.dumps(volume_outline, ensure_ascii=False, indent=2)
-        db = await get_db()
-        try:
+        async with get_db_ctx() as db:
             await db.execute(
                 "UPDATE projects SET volume_summaries=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (outline_text, project_id),
             )
             await db.commit()
             result["outline"] = True
-        finally:
-            await db.close()
 
     return result

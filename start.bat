@@ -34,11 +34,7 @@ echo       OK
 
 echo [4/4] Installing frontend dependencies...
 cd /d "%~dp0frontend"
-if not exist "node_modules" (
-    call npm install
-) else (
-    echo       node_modules exists, skipping
-)
+call npm install
 echo       OK
 
 echo.

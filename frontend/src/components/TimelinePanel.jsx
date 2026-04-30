@@ -81,14 +81,14 @@ export default function TimelinePanel({ project }) {
   function EventForm({ form, setForm, onSave, onCancel, saving }) {
     return (
       <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-gray-500 block mb-1">故事内时间</label>
             <input
               value={form.in_chapter_time || ''}
               onChange={e => setForm({ ...form, in_chapter_time: e.target.value })}
               placeholder="如：第三天傍晚"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+              className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
             />
           </div>
           <div>
@@ -97,7 +97,7 @@ export default function TimelinePanel({ project }) {
               value={form.real_world_time || ''}
               onChange={e => setForm({ ...form, real_world_time: e.target.value })}
               placeholder="如：2024年3月"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+              className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
             />
           </div>
         </div>
@@ -108,7 +108,7 @@ export default function TimelinePanel({ project }) {
             onChange={e => setForm({ ...form, event_description: e.target.value })}
             placeholder="发生了什么..."
             rows={2}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"
+            className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 resize-none transition"
           />
         </div>
         <div>
@@ -117,7 +117,7 @@ export default function TimelinePanel({ project }) {
             value={form.characters_involved || ''}
             onChange={e => setForm({ ...form, characters_involved: e.target.value })}
             placeholder="如：张三, 李四"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+            className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
           />
         </div>
         <div className="flex justify-end gap-2">
@@ -125,7 +125,7 @@ export default function TimelinePanel({ project }) {
           <button
             onClick={onSave}
             disabled={saving}
-            className="flex items-center gap-1 px-4 py-1.5 bg-green-600 hover:bg-green-700 rounded-lg text-sm transition"
+            className="flex items-center gap-1 px-4 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-sm transition shadow-lg shadow-green-500/20"
           >
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             保存
@@ -144,7 +144,7 @@ export default function TimelinePanel({ project }) {
         </div>
         <button
           onClick={() => setShowNewForm(!showNewForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition"
+          className="flex items-center gap-2 px-4 py-2 bg-amber-600/80 hover:bg-amber-500/80 rounded-lg text-sm transition shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20"
         >
           <Plus className="w-4 h-4" />
           新增事件
@@ -153,7 +153,7 @@ export default function TimelinePanel({ project }) {
 
       {/* 新建表单 */}
       {showNewForm && (
-        <div className="bg-gray-900 border border-blue-800 rounded-xl p-5 mb-4">
+        <div className="border-gradient bg-surface-1 rounded-xl p-5 mb-6 animate-fade-in">
           <EventForm
             form={newForm}
             setForm={setNewForm}
@@ -168,22 +168,22 @@ export default function TimelinePanel({ project }) {
         <div className="text-center py-12 text-gray-500">加载中...</div>
       ) : events.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
-          <Calendar className="w-10 h-10 mx-auto mb-3 opacity-50" />
+          <Calendar className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p>暂无时间线事件</p>
           <p className="text-sm mt-1">续写后 AI 会自动提取，也可手动新增</p>
         </div>
       ) : (
         <div className="relative">
           {/* 时间线轴 */}
-          <div className="absolute left-6 top-0 bottom-0 w-px bg-gray-800" />
+          <div className="absolute left-6 top-0 bottom-0 w-px bg-border-subtle" />
 
           <div className="space-y-4">
                         {events.map((ev, i) => (
-              <div key={ev.id || i} className="relative pl-14 group">
+              <div key={ev.id || i} className="relative pl-12 group">
                 {/* 节点 */}
-                <div className="absolute left-4 top-3 w-3 h-3 rounded-full bg-cyan-500 border-2 border-gray-950 z-10" />
+                <div className="absolute left-[21px] top-3 w-3 h-3 rounded-full bg-cyan-500 border-2 border-gray-950 z-10" />
 
-                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div className="bg-white/[0.02] border border-border-subtle border-l-2 border-l-cyan-500/50 rounded-xl p-4">
                   {editingId === ev.id ? (
                     <EventForm
                       form={editForm}
@@ -201,17 +201,17 @@ export default function TimelinePanel({ project }) {
                             <span className="text-xs text-gray-600">（现实：{ev.real_world_time}）</span>
                           )}
                         </div>
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                        <div className="flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 opacity-100 transition">
                           <button
                             onClick={() => startEdit(ev)}
-                            className="p-1 text-gray-600 hover:text-blue-400 hover:bg-gray-700 rounded transition"
+                            className="p-1 text-gray-600 hover:text-amber-400/70 hover:bg-white/[0.04] rounded transition"
                             title="编辑"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => handleDelete(ev.id)}
-                            className="p-1 text-gray-600 hover:text-red-400 hover:bg-gray-700 rounded transition"
+                            className="p-1 text-gray-600 hover:text-red-400 hover:bg-white/[0.04] rounded transition"
                             title="删除"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -222,7 +222,7 @@ export default function TimelinePanel({ project }) {
                       {ev.characters_involved && (
                         <div className="mt-2 flex flex-wrap gap-1">
                           {ev.characters_involved.split(',').map((c, j) => (
-                            <span key={j} className="text-xs px-2 py-0.5 bg-gray-800 text-gray-400 rounded-full">
+                            <span key={j} className="text-xs px-2 py-0.5 bg-white/[0.04] text-gray-400 border border-border-subtle rounded-full">
                               {c.trim()}
                             </span>
                           ))}

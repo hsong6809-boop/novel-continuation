@@ -1,7 +1,11 @@
 """项目管理路由"""
+import json
+import logging
 from fastapi import APIRouter, HTTPException
 from typing import List
-from models.database import get_db
+from models.database import get_db_ctx
+
+logger = logging.getLogger(__name__)
 from models.schemas import (
     ProjectCreate, ProjectUpdate, ProjectOut,
     ChapterOutlineOut, ChapterOutlineUpdate,
@@ -25,19 +29,15 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 @router.get("", response_model=List[ProjectOut])
 async def list_projects():
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute("SELECT * FROM projects ORDER BY updated_at DESC")
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
-    finally:
-        await db.close()
 
 
 @router.post("", response_model=ProjectOut, status_code=201)
 async def create_project(data: ProjectCreate):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             """INSERT INTO projects (name, genre, description, model_provider, model_name,
                target_words, volume_summaries, style_notes, platform, notes)
@@ -56,32 +56,25 @@ async def create_project(data: ProjectCreate):
         cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
         row = await cursor.fetchone()
         return dict(row)
-    finally:
-        await db.close()
 
 
 @router.get("/{project_id}", response_model=ProjectOut)
 async def get_project(project_id: int):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
         row = await cursor.fetchone()
         if not row:
             raise HTTPException(404, "项目不存在")
         return dict(row)
-    finally:
-        await db.close()
 
 
 @router.put("/{project_id}", response_model=ProjectOut)
 async def update_project(project_id: int, data: ProjectUpdate):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         fields = {k: v for k, v in data.model_dump().items() if v is not None}
         if not fields:
             raise HTTPException(400, "没有需要更新的字段")
-        fields["updated_at"] = "CURRENT_TIMESTAMP"
-        set_clause = ", ".join(f"{k}=?" for k in fields)
+        set_clause = ", ".join(f"{k}=?" for k in fields) + ", updated_at=CURRENT_TIMESTAMP"
         values = list(fields.values()) + [project_id]
         await db.execute(f"UPDATE projects SET {set_clause} WHERE id=?", values)
         await db.commit()
@@ -90,20 +83,15 @@ async def update_project(project_id: int, data: ProjectUpdate):
         if not row:
             raise HTTPException(404, "项目不存在")
         return dict(row)
-    finally:
-        await db.close()
 
 
 @router.delete("/{project_id}", status_code=204)
 async def delete_project(project_id: int):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute("DELETE FROM projects WHERE id=?", (project_id,))
         await db.commit()
         if cursor.rowcount == 0:
             raise HTTPException(404, "项目不存在")
-    finally:
-        await db.close()
 
 
 # ========== 总纲管理 ==========
@@ -184,21 +172,17 @@ async def generate_volume_outlines(project_id: int, data: OutlineGenerateRequest
 
 @router.get("/{project_id}/outlines/chapters", response_model=List[ChapterOutlineOut])
 async def list_outlines(project_id: int):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT * FROM chapter_outlines WHERE project_id=? ORDER BY chapter_number",
             (project_id,),
         )
         return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
 
 @router.get("/{project_id}/outlines/chapters/{chapter}")
 async def get_outline(project_id: int, chapter: int):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT * FROM chapter_outlines WHERE project_id=? AND chapter_number=?",
             (project_id, chapter),
@@ -213,14 +197,11 @@ async def get_outline(project_id: int, chapter: int):
         )
         scenes = [dict(r) for r in await cursor2.fetchall()]
         return {"outline": dict(outline), "scenes": scenes}
-    finally:
-        await db.close()
 
 
 @router.put("/{project_id}/outlines/chapters/{chapter}")
 async def update_outline(project_id: int, chapter: int, data: ChapterOutlineUpdate):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         fields = {k: v for k, v in data.model_dump().items() if v is not None}
         if not fields:
             raise HTTPException(400, "没有需要更新的字段")
@@ -239,8 +220,6 @@ async def update_outline(project_id: int, chapter: int, data: ChapterOutlineUpda
         if not row:
             raise HTTPException(404, "章纲不存在")
         return dict(row)
-    finally:
-        await db.close()
 
 
 @router.post("/{project_id}/outlines/chapters/{chapter}/generate", response_model=OutlineGenerateResponse)
@@ -266,8 +245,7 @@ async def batch_generate_outlines(project_id: int, data: dict):
 
 @router.post("/{project_id}/outlines/chapters/{chapter}/scenes", response_model=ScenePointOut)
 async def add_scene_point(project_id: int, chapter: int, data: ScenePointCreate):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             """INSERT INTO scene_points (project_id, chapter_number, scene_order,
                mission, key_dialogue_hint, atmosphere, target_words_ratio)
@@ -278,15 +256,12 @@ async def add_scene_point(project_id: int, chapter: int, data: ScenePointCreate)
         await db.commit()
         cursor = await db.execute("SELECT * FROM scene_points WHERE id=?", (cursor.lastrowid,))
         return dict(await cursor.fetchone())
-    finally:
-        await db.close()
 
 
 @router.put("/{project_id}/outlines/chapters/{chapter}/scenes")
 async def replace_scenes(project_id: int, chapter: int, data: List[dict]):
     """批量替换某章的所有场景要点（先删后插）"""
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         await db.execute(
             "DELETE FROM scene_points WHERE project_id=? AND chapter_number=?",
             (project_id, chapter),
@@ -307,42 +282,33 @@ async def replace_scenes(project_id: int, chapter: int, data: List[dict]):
             (project_id, chapter),
         )
         return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
 
 @router.delete("/{project_id}/outlines/chapters/{chapter}/scenes/{order}")
 async def delete_scene_point(project_id: int, chapter: int, order: int):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         await db.execute(
             "DELETE FROM scene_points WHERE project_id=? AND chapter_number=? AND scene_order=?",
             (project_id, chapter, order),
         )
         await db.commit()
-    finally:
-        await db.close()
 
 
 # ========== 章节续写 ==========
 
 @router.get("/{project_id}/chapters", response_model=List[ChapterOut])
 async def list_chapters(project_id: int):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT * FROM chapters WHERE project_id=? ORDER BY chapter_number",
             (project_id,),
         )
         return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
 
 @router.get("/{project_id}/chapters/{chapter}", response_model=ChapterOut)
 async def get_chapter(project_id: int, chapter: int):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT * FROM chapters WHERE project_id=? AND chapter_number=?",
             (project_id, chapter),
@@ -351,14 +317,11 @@ async def get_chapter(project_id: int, chapter: int):
         if not row:
             raise HTTPException(404, "章节不存在")
         return dict(row)
-    finally:
-        await db.close()
 
 
 @router.put("/{project_id}/chapters/{chapter}", response_model=ChapterOut)
 async def update_chapter(project_id: int, chapter: int, data: ChapterUpdate):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         fields = {k: v for k, v in data.model_dump().items() if v is not None}
         if not fields:
             raise HTTPException(400, "没有需要更新的字段")
@@ -379,8 +342,6 @@ async def update_chapter(project_id: int, chapter: int, data: ChapterUpdate):
         if not row:
             raise HTTPException(404, "章节不存在")
         return dict(row)
-    finally:
-        await db.close()
 
 
 @router.post("/{project_id}/chapters/{chapter}/write")
@@ -401,45 +362,11 @@ async def generate_chapter(project_id: int, chapter: int, data: GenerateRequest)
 async def generate_chapter_stream(project_id: int, chapter: int, data: GenerateRequest):
     """执行正式续写（SSE 流式输出）"""
     from fastapi.responses import StreamingResponse
-    from services.context_service import build_continuation_messages
-    from services.llm_client import chat_completion_stream
-    import json
-
-    messages = await build_continuation_messages(
-        project_id, chapter, data.custom_instructions
-    )
-
-    # 预取章纲标题，供保存时使用
-    chapter_title = None
-    try:
-        db_tmp = await get_db()
-        try:
-            cursor = await db_tmp.execute(
-                "SELECT title FROM chapter_outlines WHERE project_id=? AND chapter_number=?",
-                (project_id, chapter),
-            )
-            row = await cursor.fetchone()
-            if row:
-                chapter_title = row["title"]
-        finally:
-            await db_tmp.close()
-    except Exception:
-        pass
+    from services.continuation_service import generate_stream
 
     async def event_generator():
-        full_text = ""
-        try:
-            async for chunk in chat_completion_stream(messages, temperature=0.85):
-                full_text += chunk
-                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
-            # 流结束，保存章节并提取元数据
-            from services.chapter_service import save_chapter
-            await save_chapter(project_id, chapter, full_text, title=chapter_title)
-            from services.meta_service import extract_chapter_meta
-            meta = await extract_chapter_meta(project_id, chapter)
-            yield f"data: {json.dumps({'type': 'done', 'meta': meta}, ensure_ascii=False)}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        async for evt in generate_stream(project_id, chapter, data.custom_instructions):
+            yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -451,24 +378,37 @@ async def extract_meta(project_id: int, chapter: int):
     return await extract_chapter_meta(project_id, chapter)
 
 
+@router.get("/{project_id}/chapters/{chapter}/versions")
+async def list_chapter_versions(project_id: int, chapter: int):
+    """获取某章的历史版本列表"""
+    from services.chapter_service import list_chapter_versions
+    return await list_chapter_versions(project_id, chapter)
+
+
+@router.post("/{project_id}/chapters/{chapter}/versions/{version_id}/restore")
+async def restore_chapter_version(project_id: int, chapter: int, version_id: int):
+    """回退到指定历史版本"""
+    from services.chapter_service import restore_chapter_version
+    result = await restore_chapter_version(project_id, chapter, version_id)
+    if "error" in result:
+        raise HTTPException(400, result["error"])
+    return result
+
+
 # ========== 角色管理 ==========
 
 @router.get("/{project_id}/characters", response_model=List[CharacterOut])
 async def list_characters(project_id: int):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT * FROM characters WHERE project_id=? ORDER BY name", (project_id,)
         )
         return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
 
 @router.post("/{project_id}/characters", response_model=CharacterOut, status_code=201)
 async def create_character(project_id: int, data: CharacterCreate):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             """INSERT INTO characters (project_id, name, role, age, personality,
                speech_style, appearance, background, relationships, character_arc_summary)
@@ -480,14 +420,11 @@ async def create_character(project_id: int, data: CharacterCreate):
         await db.commit()
         cursor = await db.execute("SELECT * FROM characters WHERE id=?", (cursor.lastrowid,))
         return dict(await cursor.fetchone())
-    finally:
-        await db.close()
 
 
 @router.put("/{project_id}/characters/{name}", response_model=CharacterOut)
 async def update_character(project_id: int, name: str, data: CharacterUpdate):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         fields = {k: v for k, v in data.model_dump().items() if v is not None}
         if not fields:
             raise HTTPException(400, "没有需要更新的字段")
@@ -504,26 +441,20 @@ async def update_character(project_id: int, name: str, data: CharacterUpdate):
         if not row:
             raise HTTPException(404, "角色不存在")
         return dict(row)
-    finally:
-        await db.close()
 
 
 @router.delete("/{project_id}/characters/{name}", status_code=204)
 async def delete_character(project_id: int, name: str):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         await db.execute(
             "DELETE FROM characters WHERE project_id=? AND name=?", (project_id, name)
         )
         await db.commit()
-    finally:
-        await db.close()
 
 
 @router.get("/{project_id}/characters/snapshots", response_model=List[CharacterSnapshotOut])
 async def list_snapshots(project_id: int, chapter: int = None):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         if chapter:
             cursor = await db.execute(
                 "SELECT * FROM character_snapshots WHERE project_id=? AND chapter_number=? ORDER BY character_name",
@@ -535,16 +466,13 @@ async def list_snapshots(project_id: int, chapter: int = None):
                 (project_id,),
             )
         return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
 
 # ========== 风格 ==========
 
 @router.get("/{project_id}/style", response_model=StyleProfileOut)
 async def get_style(project_id: int):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT * FROM style_profiles WHERE project_id=?", (project_id,)
         )
@@ -552,14 +480,11 @@ async def get_style(project_id: int):
         if not row:
             raise HTTPException(404, "风格档案不存在")
         return dict(row)
-    finally:
-        await db.close()
 
 
 @router.put("/{project_id}/style/params", response_model=StyleProfileOut)
 async def update_style_params(project_id: int, data: StyleParamsUpdate):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         fields = {k: v for k, v in data.model_dump().items() if v is not None}
         if not fields:
             raise HTTPException(400, "没有需要更新的字段")
@@ -574,16 +499,68 @@ async def update_style_params(project_id: int, data: StyleParamsUpdate):
         )
         row = await cursor.fetchone()
         return dict(row)
-    finally:
-        await db.close()
+
+
+@router.post("/{project_id}/style/analyze")
+async def analyze_style(project_id: int):
+    """AI 自动分析已有章节的写作风格"""
+    from services.llm_client import chat_completion, extract_content
+    from utils.prompt_manager import format_prompt
+
+    async with get_db_ctx() as db:
+        # 加载项目信息
+        cursor = await db.execute("SELECT name, genre FROM projects WHERE id=?", (project_id,))
+        project = await cursor.fetchone()
+        if not project:
+            raise HTTPException(404, "项目不存在")
+
+        # 取前3章有内容的章节作为分析样本
+        cursor = await db.execute(
+            """SELECT chapter_number, title, content FROM chapters
+               WHERE project_id=? AND content != '' AND word_count > 200
+               ORDER BY chapter_number LIMIT 3""",
+            (project_id,),
+        )
+        chapters = [dict(r) for r in await cursor.fetchall()]
+
+    if not chapters:
+        raise HTTPException(400, "没有足够的章节内容进行风格分析，请先导入或续写至少一章")
+
+    # 构建分析上下文
+    context = f"## 项目信息\n- 书名：{project['name']}\n- 类型：{project['genre'] or '未指定'}\n\n"
+    context += "## 样本章节\n"
+    for ch in chapters:
+        content = ch["content"][:2000]  # 每章取前2000字
+        context += f"### 第{ch['chapter_number']}章 {ch.get('title', '')}\n{content}\n\n"
+
+    system = format_prompt("style_analysis", context=context)
+    messages = [{"role": "user", "content": system}]
+
+    try:
+        response = await chat_completion(messages, temperature=0.3, max_tokens=1024)
+        analysis = extract_content(response)
+    except Exception as e:
+        raise HTTPException(500, f"AI 分析失败: {str(e)}")
+
+    # 保存分析结果
+    async with get_db_ctx() as db:
+        await db.execute(
+            "UPDATE style_profiles SET base_analysis=?, updated_at=CURRENT_TIMESTAMP WHERE project_id=?",
+            (analysis, project_id),
+        )
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT * FROM style_profiles WHERE project_id=?", (project_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row)
 
 
 # ========== 伏笔 ==========
 
 @router.get("/{project_id}/foreshadowing", response_model=List[ForeshadowingOut])
 async def list_foreshadowing(project_id: int, status: str = None):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         if status:
             cursor = await db.execute(
                 "SELECT * FROM foreshadowing WHERE project_id=? AND status=? ORDER BY planted_chapter",
@@ -595,14 +572,11 @@ async def list_foreshadowing(project_id: int, status: str = None):
                 (project_id,),
             )
         return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
 
 @router.put("/{project_id}/foreshadowing/{fid}", response_model=ForeshadowingOut)
 async def update_foreshadowing(project_id: int, fid: int, data: ForeshadowingUpdate):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         fields = {k: v for k, v in data.model_dump().items() if v is not None}
         if not fields:
             raise HTTPException(400, "没有需要更新的字段")
@@ -617,38 +591,30 @@ async def update_foreshadowing(project_id: int, fid: int, data: ForeshadowingUpd
         if not row:
             raise HTTPException(404, "伏笔不存在")
         return dict(row)
-    finally:
-        await db.close()
 
 
 # ========== 时间线 ==========
 
 @router.get("/{project_id}/timeline", response_model=List[TimelineOut])
 async def list_timeline(project_id: int):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT * FROM timeline WHERE project_id=? ORDER BY chapter_number",
             (project_id,),
         )
         return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
 
 # ========== 对话 ==========
 
 @router.get("/{project_id}/chat", response_model=List[ChatMessage])
 async def list_chat_history(project_id: int):
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT role, content FROM chat_history WHERE project_id=? ORDER BY created_at",
             (project_id,),
         )
         return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
 
 @router.post("/{project_id}/chat", response_model=ChatResponse)

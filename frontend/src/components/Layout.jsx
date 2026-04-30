@@ -46,31 +46,31 @@ export default function Layout() {
     : '未选用';
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+    <div className="min-h-screen bg-surface-0 text-gray-100 flex flex-col">
       {/* 顶部导航栏 */}
-      <header className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between shrink-0">
-        <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition">
-          <BookOpen className="w-6 h-6 text-blue-400" />
-          <span className="text-lg font-bold">小说续写 Agent</span>
+      <header className="glass-strong border-b border-border-subtle px-6 py-3 flex items-center justify-between shrink-0 sticky top-0 z-50">
+        <Link to="/" className="flex items-center gap-2.5 hover:opacity-80 transition">
+          <BookOpen className="w-5 h-5 text-amber-400/80" />
+          <span className="text-lg font-bold text-gradient-ink">小说续写 Agent</span>
         </Link>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* 当前模型显示 */}
           <Link
             to="/settings"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition border ${
               hasModel
-                ? 'bg-gray-800 hover:bg-gray-700 border-gray-700 text-gray-300'
-                : 'bg-gray-800/50 hover:bg-gray-700 border-gray-700/50 text-gray-500'
+                ? 'bg-surface-2 hover:bg-white/[0.06] border-border-subtle text-gray-300'
+                : 'bg-surface-1 hover:bg-surface-2 border-border-subtle text-gray-500'
             }`}
             title={hasModel ? `当前模型：${activeModel}（点击进入设置）` : '未配置模型（点击进入设置）'}
           >
-            <span>{displayText}</span>
+            <span className="truncate max-w-[200px]">{displayText}</span>
             {!hasModel && (
               <span className="text-xs text-yellow-500/80 ml-1">⚠</span>
             )}
           </Link>
-          <Link to="/settings" className="p-2 rounded-lg hover:bg-gray-800 transition" title="设置">
-            <Settings className="w-5 h-5 text-gray-400" />
+          <Link to="/settings" className="p-2 rounded-lg hover:bg-surface-2 transition text-gray-400 hover:text-gray-300" title="设置">
+            <Settings className="w-5 h-5" />
           </Link>
         </div>
       </header>

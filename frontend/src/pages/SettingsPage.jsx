@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Settings, Save, ChevronLeft, Eye, EyeOff, Plus, Trash2, Check, RefreshCw, Loader2, AlertCircle, ChevronDown, ChevronRight, RotateCcw, FileText } from 'lucide-react';
+import { Settings, Save, ChevronLeft, Eye, EyeOff, Plus, Trash2, Check, RefreshCw, Loader2, AlertCircle, ChevronDown, ChevronRight, RotateCcw, FileText, Sliders, Server, MessageSquare } from 'lucide-react';
 import { getSettings, updateSettings, fetchModels } from '../api/client';
 
 const PROMPT_META = {
@@ -208,17 +208,17 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-gray-500">加载中...</div>
+      <div className="min-h-screen bg-surface-0 flex items-center justify-center">
+        <div className="text-gray-500 animate-shimmer px-8 py-2 rounded-lg">加载中...</div>
       </div>
     );
   }
 
   if (!settings) {
     return (
-      <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-4">
+      <div className="min-h-screen bg-surface-0 flex flex-col items-center justify-center gap-4">
         <p className="text-gray-500">加载设置失败</p>
-        <button onClick={() => navigate('/')} className="text-blue-400 hover:underline text-sm">返回</button>
+        <button onClick={() => navigate('/')} className="text-amber-400/70 hover:underline text-sm">返回</button>
       </div>
     );
   }
@@ -226,9 +226,9 @@ export default function SettingsPage() {
   const models = modelLists[settings.active_provider] || [];
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="min-h-screen bg-surface-0 text-gray-100">
       {/* 顶部栏 */}
-      <header className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between">
+      <header className="glass-strong border-b border-border-subtle px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/')}
@@ -237,17 +237,17 @@ export default function SettingsPage() {
             <ChevronLeft className="w-4 h-4" />
             返回
           </button>
-          <div className="w-px h-5 bg-gray-700" />
-          <Settings className="w-5 h-5 text-blue-400" />
+          <div className="w-px h-6 bg-border-subtle" />
+          <Settings className="w-5 h-5 text-amber-400/70" />
           <span className="text-lg font-bold">设置</span>
         </div>
         <button
           onClick={handleSave}
           disabled={saving}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition shadow-lg ${
             saved
-              ? 'bg-green-600 text-white'
-              : 'bg-blue-600 hover:bg-blue-700 text-white'
+              ? 'bg-green-600 text-white shadow-green-500/20'
+              : 'bg-amber-600/80 hover:bg-amber-500/80 text-white shadow-amber-500/10 hover:shadow-amber-500/20'
           } ${saving ? 'opacity-50' : ''}`}
         >
           {saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
@@ -255,10 +255,25 @@ export default function SettingsPage() {
         </button>
       </header>
 
-      <div className="max-w-3xl mx-auto px-6 py-8 space-y-8">
+      <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
+        {/* 锚点导航 */}
+        <nav className="flex gap-1 bg-white/[0.02] border border-border-subtle rounded-lg p-1 mb-2">
+          <a href="#model" className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs text-gray-400 hover:text-gray-200 hover:bg-white/[0.04] transition">
+            <Sliders className="w-3.5 h-3.5" /> 当前模型
+          </a>
+          <a href="#providers" className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs text-gray-400 hover:text-gray-200 hover:bg-white/[0.04] transition">
+            <Server className="w-3.5 h-3.5" /> Provider
+          </a>
+          <a href="#prompts" className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs text-gray-400 hover:text-gray-200 hover:bg-white/[0.04] transition">
+            <MessageSquare className="w-3.5 h-3.5" /> 提示词
+          </a>
+        </nav>
+
         {/* 当前使用的模型 */}
-        <section>
-          <h2 className="text-sm font-medium text-gray-400 mb-3">当前使用的模型</h2>
+        <section id="model">
+          <h2 className="text-sm font-medium text-gray-400 mb-3 flex items-center gap-2">
+            <Sliders className="w-4 h-4 text-amber-400/70" /> 当前使用的模型
+          </h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 block mb-1">Provider</label>
@@ -269,7 +284,7 @@ export default function SettingsPage() {
                   const model = settings.api_providers?.[provider]?.default_model || '';
                   setSettings(prev => ({ ...prev, active_provider: provider, active_model: model }));
                 }}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
               >
                 {Object.keys(settings.api_providers || {}).map(name => (
                   <option key={name} value={name}>{name}</option>
@@ -282,7 +297,7 @@ export default function SettingsPage() {
                 <select
                   value={settings.active_model || ''}
                   onChange={e => setSettings(prev => ({ ...prev, active_model: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
                 >
                   {models.map(m => (
                     <option key={m} value={m}>{m}</option>
@@ -293,7 +308,7 @@ export default function SettingsPage() {
                   value={settings.active_model || ''}
                   onChange={e => setSettings(prev => ({ ...prev, active_model: e.target.value }))}
                   placeholder="请先在下方获取模型列表"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
                 />
               )}
             </div>
@@ -301,12 +316,14 @@ export default function SettingsPage() {
         </section>
 
         {/* Provider 配置 */}
-        <section>
+        <section id="providers">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-medium text-gray-400">API Provider 配置</h2>
+            <h2 className="text-sm font-medium text-gray-400 flex items-center gap-2">
+              <Server className="w-4 h-4 text-amber-400/70" /> API Provider 配置
+            </h2>
             <button
               onClick={addProvider}
-              className="flex items-center gap-1 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs transition"
+              className="flex items-center gap-1 px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.06] rounded-lg text-xs transition"
             >
               <Plus className="w-3.5 h-3.5" />
               添加 Provider
@@ -320,17 +337,17 @@ export default function SettingsPage() {
               const errorMsg = modelErrors[name];
 
               return (
-                <div key={name} className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <div key={name} className="bg-white/[0.02] border border-border-subtle rounded-xl p-5 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm">{name}</span>
                       {settings.active_provider === name && (
-                        <span className="text-xs px-2 py-0.5 bg-blue-600/20 text-blue-400 rounded-full">当前</span>
+                        <span className="text-xs px-2 py-0.5 bg-amber-600/15 text-amber-400/70 rounded-full">当前</span>
                       )}
                     </div>
                     <button
                       onClick={() => removeProvider(name)}
-                      className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-gray-800 rounded transition"
+                      className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-white/[0.04] rounded transition"
                       title="删除"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -343,7 +360,7 @@ export default function SettingsPage() {
                       value={cfg.base_url || ''}
                       onChange={e => updateProvider(name, 'base_url', e.target.value)}
                       placeholder="https://api.deepseek.com/v1"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                      className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
                     />
                   </div>
 
@@ -355,7 +372,7 @@ export default function SettingsPage() {
                         value={cfg.api_key || ''}
                         onChange={e => updateProvider(name, 'api_key', e.target.value)}
                         placeholder="sk-..."
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:border-blue-500"
+                        className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 pr-10 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
                       />
                       <button
                         onClick={() => toggleShowKey(name)}
@@ -373,8 +390,8 @@ export default function SettingsPage() {
                       disabled={isLoading}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition ${
                         isLoading
-                          ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                          : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600/30'
+                          ? 'bg-white/[0.04] text-gray-400 cursor-not-allowed'
+                          : 'bg-amber-600/15 text-amber-400/70 hover:bg-amber-600/25 shadow-lg shadow-amber-500/10'
                       }`}
                     >
                       {isLoading ? (
@@ -407,7 +424,7 @@ export default function SettingsPage() {
                       <select
                         value={cfg.default_model || ''}
                         onChange={e => updateProvider(name, 'default_model', e.target.value)}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                        className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
                       >
                         {providerModels.map(m => (
                           <option key={m} value={m}>{m}</option>
@@ -418,7 +435,7 @@ export default function SettingsPage() {
                         value={cfg.default_model || ''}
                         onChange={e => updateProvider(name, 'default_model', e.target.value)}
                         placeholder="点击上方按钮自动获取，或手动输入"
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                        className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
                       />
                     )}
                   </div>
@@ -429,9 +446,9 @@ export default function SettingsPage() {
         </section>
 
         {/* 提示词管理 */}
-        <section>
+        <section id="prompts">
           <div className="flex items-center gap-2 mb-3">
-            <FileText className="w-4 h-4 text-gray-400" />
+            <MessageSquare className="w-4 h-4 text-amber-400/70" />
             <h2 className="text-sm font-medium text-gray-400">提示词管理</h2>
           </div>
           <p className="text-xs text-gray-500 mb-4">
@@ -445,11 +462,11 @@ export default function SettingsPage() {
               const hasCustom = !!currentPrompt;
 
               return (
-                <div key={key} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+                <div key={key} className="bg-white/[0.02] border border-border-subtle rounded-xl overflow-hidden">
                   {/* 标题栏 */}
                   <button
                     onClick={() => setExpandedPrompts(prev => ({ ...prev, [key]: !prev[key] }))}
-                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-800/50 transition text-left"
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.04] transition text-left"
                   >
                     <div className="flex items-center gap-3">
                       {isExpanded
@@ -468,11 +485,11 @@ export default function SettingsPage() {
 
                   {/* 展开内容 */}
                   {isExpanded && (
-                    <div className="px-4 pb-4 space-y-3">
+                    <div className="px-4 pb-4 space-y-3 animate-fade-in">
                       <p className="text-xs text-gray-400">{meta.description}</p>
 
                       {/* 修改警告 */}
-                      <div className="flex items-start gap-2 p-3 bg-yellow-900/20 border border-yellow-800/30 rounded-lg">
+                      <div className="flex items-start gap-2 p-3 bg-yellow-500/[0.06] border border-yellow-500/20 rounded-lg">
                         <AlertCircle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
                         <p className="text-xs text-yellow-300/80">{meta.warning}</p>
                       </div>
@@ -482,13 +499,13 @@ export default function SettingsPage() {
                         onChange={e => updatePrompt(key, e.target.value)}
                         placeholder="留空则使用默认模板"
                         rows={8}
-                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:outline-none focus:border-blue-500 resize-y"
+                        className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-xs text-gray-200 font-mono focus:ring-1 focus:ring-amber-500/30 resize-y transition"
                       />
 
                       <div className="flex justify-end">
                         <button
                           onClick={() => restorePrompt(key)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-lg transition"
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 hover:bg-white/[0.04] rounded-lg transition"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
                           恢复默认

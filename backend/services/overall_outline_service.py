@@ -1,6 +1,6 @@
 """总纲生成服务"""
 import json
-from models.database import get_db
+from models.database import get_db_ctx
 from services.llm_client import chat_completion, extract_content
 from utils.json_parser import extract_json
 from utils.prompt_manager import format_prompt
@@ -8,17 +8,12 @@ from utils.prompt_manager import format_prompt
 
 async def generate_overall_outline(project_id: int, custom_instructions: str = None) -> dict:
     """根据已有内容生成/重新生成总纲（不含分卷，分卷由 volume_outline_service 负责）"""
-    # 加载项目信息
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
+        # 加载项目信息
         cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
         project = dict(await cursor.fetchone())
-    finally:
-        await db.close()
 
-    # 加载已有章纲
-    db = await get_db()
-    try:
+        # 加载已有章纲
         cursor = await db.execute(
             """SELECT chapter_number, title, core_objective, emotional_arc, hooks
                FROM chapter_outlines WHERE project_id=?
@@ -26,34 +21,22 @@ async def generate_overall_outline(project_id: int, custom_instructions: str = N
             (project_id,),
         )
         existing_outlines = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 加载角色信息
-    db = await get_db()
-    try:
+        # 加载角色信息
         cursor = await db.execute(
             "SELECT name, role, personality FROM characters WHERE project_id=?",
             (project_id,),
         )
         characters = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 加载伏笔
-    db = await get_db()
-    try:
+        # 加载伏笔
         cursor = await db.execute(
             "SELECT description, planted_chapter, importance, status FROM foreshadowing WHERE project_id=?",
             (project_id,),
         )
         foreshadowings = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
-    # 加载章节摘要
-    db = await get_db()
-    try:
+        # 加载章节摘要
         cursor = await db.execute(
             """SELECT chapter_number, title, word_count, summary
                FROM chapters WHERE project_id=? AND content != ''
@@ -61,8 +44,6 @@ async def generate_overall_outline(project_id: int, custom_instructions: str = N
             (project_id,),
         )
         chapters = [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
 
     context = f"""## 项目信息
 - 书名：{project.get('name', '未命名')}
@@ -127,23 +108,19 @@ async def generate_overall_outline(project_id: int, custom_instructions: str = N
 
     # 保存到 project.volume_summaries
     outline_text = json.dumps(data, ensure_ascii=False, indent=2)
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         await db.execute(
             "UPDATE projects SET volume_summaries=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
             (outline_text, project_id),
         )
         await db.commit()
-    finally:
-        await db.close()
 
     return data
 
 
 async def get_overall_outline(project_id: int) -> dict:
     """获取当前总纲"""
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT volume_summaries FROM projects WHERE id=?", (project_id,)
         )
@@ -154,20 +131,15 @@ async def get_overall_outline(project_id: int) -> dict:
         if raw:
             return json.loads(raw)
         return {}
-    finally:
-        await db.close()
 
 
 async def update_overall_outline(project_id: int, data: dict) -> dict:
     """手动更新总纲"""
     outline_text = json.dumps(data, ensure_ascii=False, indent=2)
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         await db.execute(
             "UPDATE projects SET volume_summaries=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
             (outline_text, project_id),
         )
         await db.commit()
-        return data
-    finally:
-        await db.close()
+    return data

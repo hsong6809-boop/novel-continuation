@@ -78,14 +78,30 @@ export default function ForeshadowPanel({ project }) {
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
-      <div className="flex items-center justify-between mb-6">
+      {/* 工具栏：标题 + 筛选 + 新建 */}
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <Eye className="w-6 h-6 text-yellow-400" />
           <h1 className="text-xl font-bold">伏笔管理</h1>
+          <div className="flex gap-1.5 ml-2">
+            {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+              <button
+                key={key}
+                onClick={() => setFilter(key)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition border ${
+                  filter === key
+                    ? `${cfg.bg} border-current ${cfg.color}`
+                    : 'bg-white/[0.02] border-border-subtle text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {cfg.label}
+              </button>
+            ))}
+          </div>
         </div>
         <button
           onClick={() => setShowNewForm(!showNewForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition"
+          className="flex items-center gap-2 px-4 py-2 bg-amber-600/80 hover:bg-amber-500/80 rounded-lg text-sm transition shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20"
         >
           <Plus className="w-4 h-4" />
           新建伏笔
@@ -94,7 +110,7 @@ export default function ForeshadowPanel({ project }) {
 
       {/* 新建伏笔表单 */}
       {showNewForm && (
-        <div className="bg-gray-900 border border-blue-800 rounded-xl p-5 mb-4 space-y-3">
+        <div className="border-gradient bg-surface-1 rounded-xl p-5 mb-6 space-y-3 animate-fade-in">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 block mb-1">关键词 *</label>
@@ -102,7 +118,7 @@ export default function ForeshadowPanel({ project }) {
                 value={newForm.keyword}
                 onChange={e => setNewForm({ ...newForm, keyword: e.target.value })}
                 placeholder="如：神秘玉佩"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
               />
             </div>
             <div>
@@ -110,7 +126,7 @@ export default function ForeshadowPanel({ project }) {
               <select
                 value={newForm.importance}
                 onChange={e => setNewForm({ ...newForm, importance: e.target.value })}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
               >
                 <option value="high">高</option>
                 <option value="medium">中</option>
@@ -125,7 +141,7 @@ export default function ForeshadowPanel({ project }) {
               onChange={e => setNewForm({ ...newForm, description: e.target.value })}
               placeholder="伏笔的具体内容..."
               rows={2}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none"
+              className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 resize-none transition"
             />
           </div>
           <div>
@@ -135,7 +151,7 @@ export default function ForeshadowPanel({ project }) {
               value={newForm.expected_reveal_chapter}
               onChange={e => setNewForm({ ...newForm, expected_reveal_chapter: e.target.value })}
               placeholder="如：15"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+              className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
             />
           </div>
           <div className="flex justify-end gap-2">
@@ -143,7 +159,7 @@ export default function ForeshadowPanel({ project }) {
             <button
               onClick={handleCreate}
               disabled={saving}
-              className="flex items-center gap-1 px-4 py-1.5 bg-green-600 hover:bg-green-700 rounded-lg text-sm transition"
+              className="flex items-center gap-1 px-4 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-sm transition shadow-lg shadow-green-500/20"
             >
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               保存
@@ -152,29 +168,13 @@ export default function ForeshadowPanel({ project }) {
         </div>
       )}
 
-      {/* 筛选标签 */}
-      <div className="flex gap-2 mb-6">
-        {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-          <button
-            key={key}
-            onClick={() => setFilter(key)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition border ${
-              filter === key
-                ? `${cfg.bg} border-current ${cfg.color}`
-                : 'bg-gray-900 border-gray-800 text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            {cfg.label}
-          </button>
-        ))}
-      </div>
 
       {/* 伏笔列表 */}
       {loading ? (
         <div className="text-center py-12 text-gray-500">加载中...</div>
       ) : foreshadows.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
-          <Eye className="w-10 h-10 mx-auto mb-3 opacity-50" />
+          <Eye className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p>暂无{STATUS_CONFIG[filter].label}伏笔</p>
           <p className="text-sm mt-1">续写后 AI 会自动提取，也可手动新建</p>
         </div>
@@ -184,7 +184,7 @@ export default function ForeshadowPanel({ project }) {
             const cfg = STATUS_CONFIG[f.status] || STATUS_CONFIG.active;
             const impCfg = IMPORTANCE_CONFIG[f.importance] || IMPORTANCE_CONFIG.medium;
             return (
-                            <div key={f.id} className="bg-gray-900 border border-gray-800 rounded-xl p-4 group">
+                            <div key={f.id} className="bg-white/[0.02] border border-border-subtle rounded-xl p-4 group">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -209,18 +209,18 @@ export default function ForeshadowPanel({ project }) {
                   </div>
 
                   {/* 操作 */}
-                  <div className="flex flex-col gap-1 shrink-0">
+                  <div className="flex flex-row gap-1.5 shrink-0">
                     {f.status === 'active' && (
                       <>
                         <button
                           onClick={() => handleStatusChange(f.id, 'resolved')}
-                          className="px-2 py-1 text-xs bg-green-600/20 text-green-400 hover:bg-green-600/30 rounded transition"
+                          className="px-2 py-1 text-xs bg-green-500/[0.08] text-green-400 hover:bg-green-500/[0.15] rounded transition"
                         >
                           ✅ 回收
                         </button>
                         <button
                           onClick={() => handleStatusChange(f.id, 'abandoned')}
-                          className="px-2 py-1 text-xs bg-gray-700/50 text-gray-400 hover:bg-gray-700 rounded transition"
+                          className="px-2 py-1 text-xs bg-white/[0.04] text-gray-400 hover:bg-white/[0.06] rounded transition"
                         >
                           废弃
                         </button>
@@ -229,7 +229,7 @@ export default function ForeshadowPanel({ project }) {
                     {f.status !== 'active' && (
                       <button
                         onClick={() => handleStatusChange(f.id, 'active')}
-                        className="px-2 py-1 text-xs bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30 rounded transition"
+                        className="px-2 py-1 text-xs bg-yellow-500/[0.08] text-yellow-400 hover:bg-yellow-500/[0.15] rounded transition"
                       >
                         恢复
                       </button>

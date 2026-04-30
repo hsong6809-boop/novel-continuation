@@ -1,1 +1,273 @@
 @import "tailwindcss";
+
+/* ============================================
+   Design System — 水墨丹青
+   ============================================ */
+
+@theme {
+  --color-surface-0: #0c0a09;
+  --color-surface-1: rgba(255, 245, 235, 0.03);
+  --color-surface-2: rgba(255, 245, 235, 0.05);
+  --color-border-subtle: rgba(255, 235, 210, 0.06);
+  --color-border-default: rgba(255, 235, 210, 0.09);
+  --color-border-hover: rgba(255, 235, 210, 0.14);
+  --color-glow-blue: rgba(192, 80, 48, 0.15);
+  --color-glow-purple: rgba(184, 134, 11, 0.15);
+  --color-glow-green: rgba(90, 122, 122, 0.15);
+}
+
+/* — 水墨背景：多层晕染 — */
+body {
+  background:
+    radial-gradient(ellipse 60% 40% at 15% 10%, rgba(120, 80, 50, 0.06), transparent 70%),
+    radial-gradient(ellipse 50% 50% at 85% 80%, rgba(80, 60, 40, 0.05), transparent 70%),
+    radial-gradient(ellipse 80% 30% at 50% 0%, rgba(100, 70, 45, 0.04), transparent),
+    #0c0a09;
+  min-height: 100vh;
+}
+
+/* — 噪点纹理覆盖（模拟宣纸质感）— */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+}
+
+/* — Custom scrollbar — */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(200, 170, 130, 0.12) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(200, 170, 130, 0.12);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(200, 170, 130, 0.22);
+}
+
+/* — Animations — */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(192, 80, 48, 0); }
+  50% { box-shadow: 0 0 20px 2px rgba(192, 80, 48, 0.12); }
+}
+
+@keyframes pulse-glow-purple {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(184, 134, 11, 0); }
+  50% { box-shadow: 0 0 20px 2px rgba(184, 134, 11, 0.12); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ink-spread {
+  0% { opacity: 0; transform: scale(0.8); filter: blur(8px); }
+  60% { opacity: 0.6; filter: blur(2px); }
+  100% { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(200, 170, 130, 0.04) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+.animate-pulse-glow-purple {
+  animation: pulse-glow-purple 3s ease-in-out infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.animate-ink-spread {
+  animation: ink-spread 0.6s ease-out;
+}
+
+/* — Glass surface utility — */
+.glass {
+  background: rgba(255, 245, 235, 0.02);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+}
+
+.glass-strong {
+  background: rgba(12, 10, 9, 0.82);
+  backdrop-filter: blur(40px) saturate(1.4);
+  -webkit-backdrop-filter: blur(40px) saturate(1.4);
+}
+
+/* — Ink card utilities — */
+.ink-card {
+  background: rgba(255, 245, 235, 0.025);
+  border: 1px solid rgba(255, 235, 210, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 245, 235, 0.02),
+    0 0 0 0 transparent;
+}
+
+.ink-card-accent {
+  position: relative;
+}
+
+.ink-card-accent::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  background: linear-gradient(to bottom, #c05030, rgba(192, 80, 48, 0.2));
+  border-radius: 1px;
+}
+
+/* — Ink divider — */
+.ink-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(200, 170, 130, 0.15), transparent);
+}
+
+.ink-divider-left {
+  height: 1px;
+  background: linear-gradient(90deg, rgba(200, 170, 130, 0.2), transparent);
+}
+
+/* — Input focus glow (warm) — */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(192, 80, 48, 0.35), 0 0 12px -2px rgba(192, 80, 48, 0.12);
+}
+
+/* — Range slider styling — */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: rgba(200, 170, 130, 0.1);
+  border-radius: 999px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #b8860b;
+  border: 2px solid #0c0a09;
+  box-shadow: 0 0 8px rgba(184, 134, 11, 0.35);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #b8860b;
+  border: 2px solid #0c0a09;
+  box-shadow: 0 0 8px rgba(184, 134, 11, 0.35);
+  cursor: pointer;
+}
+
+/* — Selection color (朱砂) — */
+::selection {
+  background: rgba(192, 80, 48, 0.3);
+  color: #f5ebe0;
+}
+
+/* — Gradient text utilities — */
+.text-gradient-ink {
+  background: linear-gradient(135deg, #d4a574, #c09060);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-blue {
+  background: linear-gradient(135deg, #d4a574, #c09060);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-purple {
+  background: linear-gradient(135deg, #c9a06c, #b8860b);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* — Gradient border utility — */
+.border-gradient {
+  position: relative;
+}
+
+.border-gradient::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(192, 80, 48, 0.25), rgba(184, 134, 11, 0.15), rgba(200, 170, 130, 0.06));
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  pointer-events: none;
+}
+
+/* — Ink wash decorative background — */
+.ink-wash-bg {
+  position: relative;
+}
+
+.ink-wash-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 40% 30% at 10% 20%, rgba(100, 70, 45, 0.08), transparent),
+    radial-gradient(ellipse 35% 40% at 90% 70%, rgba(80, 55, 35, 0.06), transparent);
+  z-index: 0;
+}
+
+.ink-wash-bg > * {
+  position: relative;
+  z-index: 1;
+}

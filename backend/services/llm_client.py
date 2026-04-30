@@ -1,10 +1,14 @@
 """通用 LLM 调用客户端 - 从 settings.json 读取 API 配置"""
 import json
+import asyncio
 import httpx
 from pathlib import Path
 from config import BASE_DIR
 
 SETTINGS_FILE = BASE_DIR / "data" / "settings.json"
+
+MAX_RETRIES = 2
+RETRY_BASE_DELAY = 1.0  # 秒
 
 
 def _load_settings() -> dict:
@@ -64,7 +68,7 @@ async def chat_completion(messages: list, model: str = None,
                           temperature: float = 0.7,
                           max_tokens: int = 4096,
                           feature: str = None) -> dict:
-    """调用 OpenAI 兼容的 chat/completions 接口
+    """调用 OpenAI 兼容的 chat/completions 接口（带指数退避重试）
 
     Args:
         feature: 功能标识，用于按功能选择不同模型。None 时使用全局模型。
@@ -88,10 +92,22 @@ async def chat_completion(messages: list, model: str = None,
         "max_tokens": max_tokens,
     }
 
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(url, json=payload, headers=headers)
-        resp.raise_for_status()
-        return resp.json()
+    last_error = None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+                resp.raise_for_status()
+                return resp.json()
+        except (httpx.HTTPStatusError, httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as e:
+            last_error = e
+            if attempt < MAX_RETRIES:
+                # 429 或 5xx 错误时重试
+                if isinstance(e, httpx.HTTPStatusError) and e.response.status_code < 500 and e.response.status_code != 429:
+                    raise
+                await asyncio.sleep(RETRY_BASE_DELAY * (2 ** attempt))
+            else:
+                raise
 
 
 def extract_content(response: dict) -> str:
@@ -106,7 +122,7 @@ async def chat_completion_stream(messages: list, model: str = None,
                                  temperature: float = 0.7,
                                  max_tokens: int = 4096,
                                  feature: str = None):
-    """流式调用 OpenAI 兼容的 chat/completions 接口，yield 每个 chunk 的文本
+    """流式调用 OpenAI 兼容的 chat/completions 接口，yield 每个 chunk 的文本（带重试）
 
     Args:
         feature: 功能标识，用于按功能选择不同模型。None 时使用全局模型。
@@ -131,20 +147,32 @@ async def chat_completion_stream(messages: list, model: str = None,
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=180) as client:
-        async with client.stream("POST", url, json=payload, headers=headers) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data_str = line[6:]
-                if data_str.strip() == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data_str)
-                    delta = chunk["choices"][0].get("delta", {})
-                    text = delta.get("content", "")
-                    if text:
-                        yield text
-                except (json.JSONDecodeError, KeyError, IndexError):
-                    continue
+    last_error = None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=180) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            delta = chunk["choices"][0].get("delta", {})
+                            text = delta.get("content", "")
+                            if text:
+                                yield text
+                        except (json.JSONDecodeError, KeyError, IndexError):
+                            continue
+            return  # 成功完成，退出重试循环
+        except (httpx.HTTPStatusError, httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as e:
+            last_error = e
+            if attempt < MAX_RETRIES:
+                if isinstance(e, httpx.HTTPStatusError) and e.response.status_code < 500 and e.response.status_code != 429:
+                    raise
+                await asyncio.sleep(RETRY_BASE_DELAY * (2 ** attempt))
+            else:
+                raise

@@ -1,5 +1,6 @@
 """数据库连接与初始化"""
 import aiosqlite
+from contextlib import asynccontextmanager
 from config import DATABASE_DIR
 
 DB_PATH = DATABASE_DIR / "novel.db"
@@ -12,6 +13,16 @@ async def get_db() -> aiosqlite.Connection:
     await db.execute("PRAGMA journal_mode=WAL")
     await db.execute("PRAGMA foreign_keys=ON")
     return db
+
+
+@asynccontextmanager
+async def get_db_ctx():
+    """数据库连接上下文管理器，自动关闭连接"""
+    db = await get_db()
+    try:
+        yield db
+    finally:
+        await db.close()
 
 
 async def init_db():
@@ -69,6 +80,25 @@ async def _migrate():
             await db.execute("ALTER TABLE projects ADD COLUMN platform TEXT")
         if "notes" not in columns:
             await db.execute("ALTER TABLE projects ADD COLUMN notes TEXT")
+
+        # 检查 chapter_versions 表是否存在
+        cursor = await db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='chapter_versions'"
+        )
+        if not await cursor.fetchone():
+            await db.executescript("""
+                CREATE TABLE IF NOT EXISTS chapter_versions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id INTEGER NOT NULL,
+                    chapter_number INTEGER NOT NULL,
+                    version INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    word_count INTEGER DEFAULT 0,
+                    title TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+            """)
 
         await db.commit()
     finally:
@@ -237,6 +267,19 @@ CREATE TABLE IF NOT EXISTS chat_history (
     project_id INTEGER NOT NULL,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+-- 章节版本历史表
+CREATE TABLE IF NOT EXISTS chapter_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    version INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    word_count INTEGER DEFAULT 0,
+    title TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );

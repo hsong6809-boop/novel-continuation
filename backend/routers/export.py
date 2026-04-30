@@ -1,36 +1,56 @@
 """导出路由 - 支持 TXT / EPUB / DOCX"""
 import io
 import re
+from urllib.parse import quote
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from models.database import get_db
+
+
+def clean_ai_artifacts(text: str) -> str:
+    """清理 AI 生成的残留标记，用于导出前处理"""
+    # 移除 [待补充] [此处待续] [略] 等方括号占位符
+    text = re.sub(r'\[待[补充续写完]+\]', '', text)
+    text = re.sub(r'\[此处[^\]]{0,20}\]', '', text)
+    text = re.sub(r'\[略\]', '', text)
+    text = re.sub(r'\[TODO\]', '', text, flags=re.IGNORECASE)
+
+    # 移除 （此处描写xxx） 等圆括号占位符
+    text = re.sub(r'（此处[^）]{0,30}）', '', text)
+    text = re.sub(r'\(此处[^)]{0,30}\)', '', text)
+
+    # 移除连续分隔线（3个以上的 - 或 * 或 =）
+    text = re.sub(r'[-*═]{3,}\n?', '\n', text)
+    text = re.sub(r'[=]{4,}\n?', '\n', text)
+
+    # 移除 AI 自言自语（如 "以下是续写内容：" 等开头语）
+    text = re.sub(r'^(以下是[^\n]{0,20}[：:]\s*\n)', '', text)
+    text = re.sub(r'^(好的[，,][^\n]{0,20}[：:]\s*\n)', '', text)
+
+    # 清理多余空行（超过2个连续空行合并为2个）
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    return text.strip()
 
 router = APIRouter(prefix="/api/projects", tags=["export"])
 
 
-async def _load_all_chapters(project_id: int) -> list[dict]:
-    """按顺序加载所有有内容的章节"""
-    db = await get_db()
-    try:
+async def _load_export_data(project_id: int) -> tuple[dict, list[dict]]:
+    """加载导出所需的项目和章节数据（共享连接）"""
+    from models.database import get_db_ctx
+    async with get_db_ctx() as db:
+        cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
+        row = await cursor.fetchone()
+        project = dict(row) if row else {}
+
         cursor = await db.execute(
             """SELECT chapter_number, title, content, word_count
                FROM chapters WHERE project_id=? AND content != ''
                ORDER BY chapter_number""",
             (project_id,),
         )
-        return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
+        chapters = [dict(r) for r in await cursor.fetchall()]
 
-
-async def _load_project(project_id: int) -> dict:
-    db = await get_db()
-    try:
-        cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
-        row = await cursor.fetchone()
-        return dict(row) if row else {}
-    finally:
-        await db.close()
+    return project, chapters
 
 
 # ========== TXT 导出 ==========
@@ -38,8 +58,7 @@ async def _load_project(project_id: int) -> dict:
 @router.get("/{project_id}/export/txt")
 async def export_txt(project_id: int):
     """导出纯文本 TXT"""
-    project = await _load_project(project_id)
-    chapters = await _load_all_chapters(project_id)
+    project, chapters = await _load_export_data(project_id)
     if not chapters:
         raise HTTPException(404, "没有可导出的章节")
 
@@ -51,16 +70,17 @@ async def export_txt(project_id: int):
     for ch in chapters:
         title = ch.get("title") or f"第{ch['chapter_number']}章"
         lines.append(f"\n{'=' * 20}\n{title}\n{'=' * 20}\n")
-        lines.append(ch["content"])
+        lines.append(clean_ai_artifacts(ch["content"]))
         lines.append("")
 
     text = "\n".join(lines)
     filename = f"{project.get('name', 'novel')}.txt"
+    encoded_filename = quote(filename)
 
     return StreamingResponse(
         io.BytesIO(text.encode("utf-8")),
         media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"},
     )
 
 
@@ -76,8 +96,7 @@ async def export_docx(project_id: int):
     except ImportError:
         raise HTTPException(500, "DOCX 导出需要安装 python-docx")
 
-    project = await _load_project(project_id)
-    chapters = await _load_all_chapters(project_id)
+    project, chapters = await _load_export_data(project_id)
     if not chapters:
         raise HTTPException(404, "没有可导出的章节")
 
@@ -109,7 +128,7 @@ async def export_docx(project_id: int):
         title = ch.get("title") or f"第{ch['chapter_number']}章"
         doc.add_heading(title, level=1)
 
-        content = ch["content"]
+        content = clean_ai_artifacts(ch["content"])
         # 按段落分割（空行分段）
         paragraphs = re.split(r'\n\s*\n', content)
         for para_text in paragraphs:
@@ -125,10 +144,11 @@ async def export_docx(project_id: int):
     buf.seek(0)
 
     filename = f"{project.get('name', 'novel')}.docx"
+    encoded_filename = quote(filename)
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"},
     )
 
 
@@ -142,8 +162,7 @@ async def export_epub(project_id: int):
     except ImportError:
         raise HTTPException(500, "EPUB 导出需要安装 ebooklib")
 
-    project = await _load_project(project_id)
-    chapters = await _load_all_chapters(project_id)
+    project, chapters = await _load_export_data(project_id)
     if not chapters:
         raise HTTPException(404, "没有可导出的章节")
 
@@ -183,7 +202,7 @@ async def export_epub(project_id: int):
 
     for ch in chapters:
         title = ch.get("title") or f"第{ch['chapter_number']}章"
-        content = ch["content"]
+        content = clean_ai_artifacts(ch["content"])
 
         # 按段落分割
         paragraphs = re.split(r'\n\s*\n', content)
@@ -222,8 +241,9 @@ async def export_epub(project_id: int):
     buf.seek(0)
 
     filename = f"{project.get('name', 'novel')}.epub"
+    encoded_filename = quote(filename)
     return StreamingResponse(
         buf,
         media_type="application/epub+zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"},
     )

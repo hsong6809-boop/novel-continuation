@@ -29,6 +29,10 @@ export const updateChapter = (pid, ch, data) => api.put(`/projects/${pid}/chapte
 export const writePreview = (pid, ch) => api.post(`/projects/${pid}/chapters/${ch}/write`).then(r => r.data);
 export const generateChapter = (pid, ch, data) => api.post(`/projects/${pid}/chapters/${ch}/generate`, data, { timeout: 120000 }).then(r => r.data);
 
+// ========== 章节版本 ==========
+export const listChapterVersions = (pid, ch) => api.get(`/projects/${pid}/chapters/${ch}/versions`).then(r => r.data);
+export const restoreChapterVersion = (pid, ch, vid) => api.post(`/projects/${pid}/chapters/${ch}/versions/${vid}/restore`).then(r => r.data);
+
 export const generateChapterStream = async function* (pid, ch, data) {
   const resp = await fetch(`/api/projects/${pid}/chapters/${ch}/generate-stream`, {
     method: 'POST',
@@ -59,11 +63,12 @@ export const listCharacters = (pid) => api.get(`/projects/${pid}/characters`).th
 export const createCharacter = (pid, data) => api.post(`/projects/${pid}/characters`, data).then(r => r.data);
 export const updateCharacter = (pid, cid, data) => api.put(`/projects/${pid}/characters/${cid}`, data).then(r => r.data);
 export const deleteCharacter = (pid, cid) => api.delete(`/projects/${pid}/characters/${cid}`);
-export const getCharacterSnapshots = (pid, ch) => api.get(`/projects/${pid}/characters/snapshots/${ch}`).then(r => r.data);
+export const getCharacterSnapshots = (pid, ch) => api.get(`/projects/${pid}/characters/snapshots`, { params: ch ? { chapter: ch } : {} }).then(r => r.data);
 
 // ========== 风格 ==========
 export const getStyle = (pid) => api.get(`/projects/${pid}/style`).then(r => r.data);
 export const updateStyleParams = (pid, data) => api.put(`/projects/${pid}/style/params`, data).then(r => r.data);
+export const analyzeStyle = (pid) => api.post(`/projects/${pid}/style/analyze`, {}, { timeout: 60000 }).then(r => r.data);
 
 // ========== 伏笔 ==========
 export const listForeshadowing = (pid, status) => {

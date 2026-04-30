@@ -1,112 +1,71 @@
 """上下文构建服务 - 为续写和章纲生成提供上下文"""
-from models.database import get_db
+from models.database import get_db_ctx
 from utils.prompt_manager import format_prompt
 
 
-async def _load_project(project_id: int) -> dict:
-    db = await get_db()
-    try:
+async def _load_all_context(project_id: int, chapter: int, recent_count: int = 15) -> dict:
+    """一次性加载所有上下文数据（共享连接）"""
+    async with get_db_ctx() as db:
+        # 项目信息
         cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
-        row = await cursor.fetchone()
-        return dict(row) if row else {}
-    finally:
-        await db.close()
+        project_row = await cursor.fetchone()
+        project = dict(project_row) if project_row else {}
 
-
-async def _load_recent_chapters(project_id: int, count: int = 15) -> list:
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            """SELECT chapter_number, title, content, word_count, summary
-               FROM chapters WHERE project_id=? AND content != ''
-               ORDER BY chapter_number DESC LIMIT ?""",
-            (project_id, count),
-        )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in reversed(rows)]
-    finally:
-        await db.close()
-
-
-async def _load_outline(project_id: int, chapter: int) -> dict:
-    db = await get_db()
-    try:
+        # 章纲
         cursor = await db.execute(
             "SELECT * FROM chapter_outlines WHERE project_id=? AND chapter_number=?",
             (project_id, chapter),
         )
-        row = await cursor.fetchone()
-        return dict(row) if row else {}
-    finally:
-        await db.close()
+        outline_row = await cursor.fetchone()
+        outline = dict(outline_row) if outline_row else {}
 
-
-async def _load_scenes(project_id: int, chapter: int) -> list:
-    db = await get_db()
-    try:
+        # 场景要点
         cursor = await db.execute(
             "SELECT * FROM scene_points WHERE project_id=? AND chapter_number=? ORDER BY scene_order",
             (project_id, chapter),
         )
-        return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
+        scenes = [dict(r) for r in await cursor.fetchall()]
 
-
-async def _load_characters(project_id: int) -> list:
-    db = await get_db()
-    try:
+        # 最近章节
         cursor = await db.execute(
-            "SELECT name, role, personality, speech_style, background FROM characters WHERE project_id=?",
-            (project_id,),
+            """SELECT chapter_number, title, content, word_count, summary
+               FROM chapters WHERE project_id=? AND content != ''
+               ORDER BY chapter_number DESC LIMIT ?""",
+            (project_id, recent_count),
         )
-        return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
+        recent_rows = await cursor.fetchall()
+        recent = [dict(r) for r in reversed(recent_rows)]
 
-
-async def _load_style(project_id: int) -> dict:
-    db = await get_db()
-    try:
+        # 风格
         cursor = await db.execute(
             "SELECT * FROM style_profiles WHERE project_id=?", (project_id,)
         )
-        row = await cursor.fetchone()
-        return dict(row) if row else {}
-    finally:
-        await db.close()
+        style_row = await cursor.fetchone()
+        style = dict(style_row) if style_row else {}
 
-
-async def _load_active_foreshadowing(project_id: int) -> list:
-    db = await get_db()
-    try:
+        # 活跃伏笔
         cursor = await db.execute(
             "SELECT * FROM foreshadowing WHERE project_id=? AND status='active' ORDER BY planted_chapter",
             (project_id,),
         )
-        return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
+        foreshadowing = [dict(r) for r in await cursor.fetchall()]
 
-
-async def _load_timeline(project_id: int, limit: int = 10) -> list:
-    db = await get_db()
-    try:
+        # 时间线
         cursor = await db.execute(
-            "SELECT * FROM timeline WHERE project_id=? ORDER BY chapter_number DESC LIMIT ?",
-            (project_id, limit),
+            "SELECT * FROM timeline WHERE project_id=? ORDER BY chapter_number DESC LIMIT 10",
+            (project_id,),
         )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in reversed(rows)]
-    finally:
-        await db.close()
+        timeline_rows = await cursor.fetchall()
+        timeline = [dict(r) for r in reversed(timeline_rows)]
 
+        # 角色
+        cursor = await db.execute(
+            "SELECT name, role, personality, speech_style, background FROM characters WHERE project_id=?",
+            (project_id,),
+        )
+        characters = [dict(r) for r in await cursor.fetchall()]
 
-async def _load_character_snapshots(project_id: int, up_to_chapter: int) -> list:
-    """加载每个角色在最近章节中的最新状态快照"""
-    db = await get_db()
-    try:
-        # 获取每个角色在 up_to_chapter 之前（含）的最新快照
+        # 角色快照（每个角色最新）
         cursor = await db.execute(
             """SELECT cs.character_name, cs.current_state, cs.chapter_number
                FROM character_snapshots cs
@@ -119,46 +78,48 @@ async def _load_character_snapshots(project_id: int, up_to_chapter: int) -> list
                       AND cs.chapter_number=latest.max_ch
                WHERE cs.project_id=? AND cs.chapter_number<=?
                ORDER BY cs.character_name""",
-            (project_id, up_to_chapter, project_id, up_to_chapter),
+            (project_id, chapter - 1, project_id, chapter - 1),
         )
-        return [dict(r) for r in await cursor.fetchall()]
-    finally:
-        await db.close()
+        snapshots = [dict(r) for r in await cursor.fetchall()]
+
+    return {
+        "project": project,
+        "outline": outline,
+        "scenes": scenes,
+        "recent": recent,
+        "style": style,
+        "foreshadowing": foreshadowing,
+        "timeline": timeline,
+        "characters": characters,
+        "snapshots": snapshots,
+    }
 
 
 async def build_write_preview(project_id: int, chapter: int) -> dict:
     """构建续写向导的预览信息"""
-    project = await _load_project(project_id)
-    outline = await _load_outline(project_id, chapter)
-    scenes = await _load_scenes(project_id, chapter)
-    recent = await _load_recent_chapters(project_id, 15)
-    style = await _load_style(project_id)
-    foreshadowing = await _load_active_foreshadowing(project_id)
-    timeline = await _load_timeline(project_id)
-    characters = await _load_characters(project_id)
-    snapshots = await _load_character_snapshots(project_id, chapter - 1)
+    ctx = await _load_all_context(project_id, chapter)
+    recent = ctx["recent"]
 
     recent_range = ""
     if recent:
         recent_range = f"第{recent[0]['chapter_number']}章 ~ 第{recent[-1]['chapter_number']}章"
 
-    # 估算 token
     total_chars = sum(len(ch.get("content", "")) for ch in recent)
     estimated_tokens = int(total_chars * 0.5) + 2000
 
     return {
         "chapter_number": chapter,
-        "outline": outline if outline else None,
-        "scenes": scenes,
-        "style_params": style if style else None,
-        "active_foreshadowing": foreshadowing,
-        "recent_timeline": timeline,
-                "character_snapshots": snapshots,
+        "outline": ctx["outline"] if ctx["outline"] else None,
+        "scenes": ctx["scenes"],
+        "style_params": ctx["style"] if ctx["style"] else None,
+        "active_foreshadowing": ctx["foreshadowing"],
+        "recent_timeline": ctx["timeline"],
+        "character_snapshots": ctx["snapshots"],
         "context_range": recent_range or "暂无前文",
         "estimated_tokens": estimated_tokens,
         "recent_chapters": recent,
-        "characters": characters,
-        "project": project,
+        "characters": ctx["characters"],
+        "project": ctx["project"],
     }
 
 
@@ -168,7 +129,6 @@ async def build_continuation_messages(project_id: int, chapter: int,
     preview = await build_write_preview(project_id, chapter)
     project = preview.get("project", {})
 
-    # 构建上下文数据块
     context = f"""## 项目信息
 - 书名：{project.get('name', '未命名')}
 - 类型：{project.get('genre', '未指定')}

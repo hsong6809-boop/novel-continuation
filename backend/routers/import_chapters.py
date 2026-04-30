@@ -3,7 +3,7 @@ import re
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import Optional, List
-from models.database import get_db
+from models.database import get_db_ctx
 
 router = APIRouter(prefix="/api/projects", tags=["import"])
 
@@ -75,8 +75,7 @@ def split_text_to_chapters(text: str) -> List[dict]:
 @router.post("/{project_id}/import/batch")
 async def batch_import_chapters(project_id: int, data: BatchImportRequest):
     """批量导入章节（粘贴模式）"""
-    db = await get_db()
-    try:
+    async with get_db_ctx() as db:
         # 检查项目存在
         cursor = await db.execute("SELECT id, current_chapter FROM projects WHERE id=?", (project_id,))
         project = await cursor.fetchone()
@@ -128,8 +127,6 @@ async def batch_import_chapters(project_id: int, data: BatchImportRequest):
             "total_words": total_words,
             "max_chapter": max_chapter,
         }
-    finally:
-        await db.close()
 
 
 @router.post("/{project_id}/import/file")
@@ -153,7 +150,7 @@ async def import_from_file(project_id: int, file: UploadFile = File(...)):
     if not chapters:
         raise HTTPException(400, "未能从文件中识别出章节内容")
 
-        # 转为 BatchImportRequest 格式复用逻辑
+    # 转为 BatchImportRequest 格式复用逻辑
     batch = BatchImportRequest(chapters=[
         ChapterItem(chapter_number=c["chapter_number"], title=c["title"], content=c["content"])
         for c in chapters
