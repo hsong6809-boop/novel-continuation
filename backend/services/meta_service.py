@@ -60,17 +60,26 @@ async def extract_chapter_meta(project_id: int, chapter: int) -> dict:
     "timeline": {{
         "story_time_description": "本章的时间描述",
         "summary": "本章时间线摘要"
-    }}
+    }},
+    "emotion_peak": "本章的情感高潮点描述：最打动读者的关键场景或情感爆发点",
+    "new_settings": [
+        {{
+            "category": "设定类别（如：地理/势力/魔法体系/科技/社会制度/历史/生物等）",
+            "name": "设定名称",
+            "description": "设定描述",
+            "importance": "high/normal/low"
+        }}
+    ]
 }}
 
-## 章节内容（前3000字）
-{content[:3000]}"""
+## 章节内容
+{content}"""
 
     system = format_prompt("meta_extraction", context=context)
     messages = [{"role": "user", "content": system}]
 
     try:
-        response = await chat_completion(messages, temperature=0.3, max_tokens=2048)
+        response = await chat_completion(messages, temperature=0.3, max_tokens=4096)
         raw = extract_content(response)
     except Exception as e:
         logger.error("元数据提取 AI 调用失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
@@ -103,11 +112,14 @@ async def extract_chapter_meta(project_id: int, chapter: int) -> dict:
         new_foreshadowings = data.get("new_foreshadowings", [])
         if new_foreshadowings:
             for fs in new_foreshadowings:
+                desc = fs.get("description", "")
+                if not desc:
+                    continue
                 await db.execute(
                     """INSERT INTO foreshadowing
                        (project_id, description, planted_chapter, importance, status)
                        VALUES (?, ?, ?, ?, 'active')""",
-                    (project_id, fs["description"], chapter, fs.get("importance", "normal")),
+                    (project_id, desc, chapter, fs.get("importance", "normal")),
                 )
 
         # 回收伏笔
@@ -139,9 +151,39 @@ async def extract_chapter_meta(project_id: int, chapter: int) -> dict:
         if timeline and timeline.get("story_time_description"):
             await db.execute(
                 """INSERT INTO timeline (project_id, chapter_number, story_time_description, summary)
-                   VALUES (?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(project_id, chapter_number)
+                   DO UPDATE SET story_time_description=excluded.story_time_description,
+                   summary=excluded.summary""",
                 (project_id, chapter, timeline["story_time_description"], timeline.get("summary")),
             )
+
+        # 保存情感高潮点
+        emotion_peak = data.get("emotion_peak")
+        if emotion_peak:
+            await db.execute(
+                "UPDATE chapters SET emotion_peak=? WHERE project_id=? AND chapter_number=?",
+                (emotion_peak, project_id, chapter),
+            )
+
+        # 保存新设定到设定库
+        new_settings = data.get("new_settings", [])
+        if new_settings:
+            for setting in new_settings:
+                if setting.get("name") and setting.get("category"):
+                    await db.execute(
+                        """INSERT INTO settings_library
+                           (project_id, category, name, description, source_chapter, importance)
+                           VALUES (?, ?, ?, ?, ?, ?)
+                           ON CONFLICT(project_id, category, name)
+                           DO UPDATE SET description=excluded.description,
+                           source_chapter=excluded.source_chapter,
+                           importance=excluded.importance,
+                           updated_at=CURRENT_TIMESTAMP""",
+                        (project_id, setting["category"], setting["name"],
+                         setting.get("description", ""), chapter,
+                         setting.get("importance", "normal")),
+                    )
 
         await db.commit()
 

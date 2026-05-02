@@ -60,6 +60,7 @@ export const generateChapterStream = async function* (pid, ch, data) {
 
 // ========== 角色 ==========
 export const listCharacters = (pid) => api.get(`/projects/${pid}/characters`).then(r => r.data);
+export const listCharactersByVolume = (pid, chapter) => api.get(`/projects/${pid}/characters/by-volume`, { params: chapter ? { chapter } : {} }).then(r => r.data);
 export const createCharacter = (pid, data) => api.post(`/projects/${pid}/characters`, data).then(r => r.data);
 export const updateCharacter = (pid, cid, data) => api.put(`/projects/${pid}/characters/${cid}`, data).then(r => r.data);
 export const deleteCharacter = (pid, cid) => api.delete(`/projects/${pid}/characters/${cid}`);
@@ -82,7 +83,8 @@ export const listTimeline = (pid) => api.get(`/projects/${pid}/timeline`).then(r
 
 // ========== 对话 ==========
 export const listChat = (pid) => api.get(`/projects/${pid}/chat`).then(r => r.data);
-export const sendChat = (pid, message) => api.post(`/projects/${pid}/chat`, { message }, { timeout: 60000 }).then(r => r.data);
+export const sendChat = (pid, message, mode) => api.post(`/projects/${pid}/chat`, { message, mode }, { timeout: 60000 }).then(r => r.data);
+export const listChatModes = (pid) => api.get(`/projects/${pid}/chat/modes`).then(r => r.data);
 
 // ========== 元数据提取 ==========
 export const extractMeta = (pid, ch) => api.post(`/projects/${pid}/chapters/${ch}/extract-meta`, {}, { timeout: 60000 }).then(r => r.data);
@@ -91,6 +93,7 @@ export const extractMeta = (pid, ch) => api.post(`/projects/${pid}/chapters/${ch
 export const getSettings = () => api.get('/settings').then(r => r.data);
 export const updateSettings = (data) => api.put('/settings', data).then(r => r.data);
 export const listProviders = () => api.get('/settings/providers').then(r => r.data);
+export const getDefaultPrompts = () => api.get('/settings/default-prompts').then(r => r.data);
 export const fetchModels = (base_url, api_key) => api.post('/settings/models', { base_url, api_key }, { timeout: 15000 }).then(r => r.data);
 
 // ========== 导入 ==========
@@ -107,6 +110,9 @@ export const importFile = (pid, file) => {
 // ========== 预处理 ==========
 export const preprocessProject = (pid) => api.post(`/projects/${pid}/preprocess`, {}, { timeout: 180000 }).then(r => r.data);
 
+// ========== 大文件分块处理 ==========
+export const largeProcessImport = (pid) => api.post(`/projects/${pid}/import/large-process`, {}, { timeout: 600000 }).then(r => r.data);
+
 // ========== 总纲 ==========
 export const getOverallOutline = (pid) => api.get(`/projects/${pid}/outline/overall`).then(r => r.data);
 export const generateOverallOutline = (pid, data) => api.post(`/projects/${pid}/outline/overall/generate`, data || {}, { timeout: 120000 }).then(r => r.data);
@@ -118,9 +124,16 @@ export const getVolumeOutline = (pid, vid) => api.get(`/projects/${pid}/outlines
 export const createVolumeOutline = (pid, data) => api.post(`/projects/${pid}/outlines/volumes`, data).then(r => r.data);
 export const updateVolumeOutline = (pid, vid, data) => api.put(`/projects/${pid}/outlines/volumes/${vid}`, data).then(r => r.data);
 export const deleteVolumeOutline = (pid, vid) => api.delete(`/projects/${pid}/outlines/volumes/${vid}`);
-export const generateVolumeOutlines = (pid, data) => api.post(`/projects/${pid}/outlines/volumes/generate`, data || {}, { timeout: 120000 }).then(r => r.data);
+export const generateVolumeOutlines = (pid) => api.post(`/projects/${pid}/outlines/volumes/generate`, {}, { timeout: 120000 }).then(r => r.data);
 
 // ========== 批量章纲生成 ==========
 export const batchGenerateOutlines = (pid, vid, data) => api.post(`/projects/${pid}/outlines/chapters/batch-generate`, { volume_id: vid, ...(data || {}) }, { timeout: 120000 }).then(r => r.data);
+
+// ========== 设定库 ==========
+export const listSettingsLibrary = (pid, category) => api.get(`/projects/${pid}/settings-library`, { params: category ? { category } : {} }).then(r => r.data);
+export const listSettingCategories = (pid) => api.get(`/projects/${pid}/settings-library/categories`).then(r => r.data);
+export const createSetting = (pid, data) => api.post(`/projects/${pid}/settings-library`, data).then(r => r.data);
+export const updateSetting = (pid, sid, data) => api.put(`/projects/${pid}/settings-library/${sid}`, data).then(r => r.data);
+export const deleteSetting = (pid, sid) => api.delete(`/projects/${pid}/settings-library/${sid}`);
 
 export default api;

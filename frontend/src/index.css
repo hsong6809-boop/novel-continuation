@@ -1,48 +1,193 @@
 @import "tailwindcss";
 
 /* ============================================
-   Design System — 水墨丹青
+   Design System — 水墨丹青 · 宣纸浅色 + 暗纸墨迹
    ============================================ */
 
 @theme {
-  --color-surface-0: #0c0a09;
-  --color-surface-1: rgba(255, 245, 235, 0.03);
-  --color-surface-2: rgba(255, 245, 235, 0.05);
-  --color-border-subtle: rgba(255, 235, 210, 0.06);
-  --color-border-default: rgba(255, 235, 210, 0.09);
-  --color-border-hover: rgba(255, 235, 210, 0.14);
-  --color-glow-blue: rgba(192, 80, 48, 0.15);
-  --color-glow-purple: rgba(184, 134, 11, 0.15);
-  --color-glow-green: rgba(90, 122, 122, 0.15);
+  /* === Surface (宣纸层次) === */
+  --color-surface-0: #f8f5ee;
+  --color-surface-1: #f2ede4;
+  --color-surface-2: #eae4d8;
+  --color-surface-3: #e0d9cc;
+
+  /* === Ink (墨色阶梯 — 暖灰取代冷灰) === */
+  --color-ink-900: #2a2520;
+  --color-ink-700: #4a4035;
+  --color-ink-500: #7a7060;
+  --color-ink-400: #9a9080;
+  --color-ink-300: #b8b0a0;
+
+  /* === Border (墨线浓淡) === */
+  --color-border-subtle: rgba(80, 65, 50, 0.06);
+  --color-border-default: rgba(80, 65, 50, 0.10);
+  --color-border-hover: rgba(80, 65, 50, 0.18);
+  --color-border-active: rgba(80, 65, 50, 0.25);
+
+  /* === Accent — 朱砂 (Vermillion) === */
+  --color-vermillion-50: #fef3f0;
+  --color-vermillion-100: #fce4db;
+  --color-vermillion-400: #d4644a;
+  --color-vermillion-500: #c05030;
+  --color-vermillion-600: #a84028;
+  --color-vermillion-700: #8a3420;
+
+  /* === Accent — 鎏金 (Gold) === */
+  --color-gold-50: #fdf8ec;
+  --color-gold-100: #f9efd0;
+  --color-gold-400: #b8941a;
+  --color-gold-500: #8b6914;
+  --color-gold-600: #705410;
+  --color-gold-700: #5a440d;
+
+  /* === Accent — 青墨 (Ink Blue) === */
+  --color-inkblue-50: #f0f3f7;
+  --color-inkblue-100: #dce4ef;
+  --color-inkblue-400: #6a8ab5;
+  --color-inkblue-500: #4a6fa5;
+  --color-inkblue-600: #3a5a8a;
+  --color-inkblue-700: #2d4770;
+
+  /* === Accent — 青玉 (Jade) === */
+  --color-jade-50: #f0f7f3;
+  --color-jade-100: #d8ede2;
+  --color-jade-400: #5aaa7a;
+  --color-jade-500: #3d8a60;
+  --color-jade-600: #2d7050;
+  --color-jade-700: #205a3d;
+
+  /* === Shadows === */
+  --shadow-sm: 0 1px 2px rgba(80, 65, 50, 0.04);
+  --shadow-md: 0 2px 8px rgba(80, 65, 50, 0.06);
+  --shadow-lg: 0 4px 16px rgba(80, 65, 50, 0.08);
+  --shadow-xl: 0 8px 32px rgba(80, 65, 50, 0.10);
+
+  /* === Typography === */
+  --font-serif: 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', 'Source Han Serif SC', serif;
+  --font-sans: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', 'Source Han Sans SC', sans-serif;
 }
 
-/* — 水墨背景：多层晕染 — */
+/* ============================================
+   暗色模式 — 暗纸墨迹
+   ============================================ */
+
+[data-theme="dark"] {
+  --color-surface-0: #1a1714;
+  --color-surface-1: #22201b;
+  --color-surface-2: #2c2a24;
+  --color-surface-3: #38352e;
+
+  --color-ink-900: #e8e2d6;
+  --color-ink-700: #c0b8a8;
+  --color-ink-500: #8a8272;
+  --color-ink-400: #6a6458;
+  --color-ink-300: #504c44;
+
+  --color-border-subtle: rgba(200, 180, 150, 0.06);
+  --color-border-default: rgba(200, 180, 150, 0.10);
+  --color-border-hover: rgba(200, 180, 150, 0.16);
+  --color-border-active: rgba(200, 180, 150, 0.22);
+
+  --color-vermillion-50: #2a1a15;
+  --color-vermillion-100: #3d221a;
+  --color-vermillion-400: #e07858;
+  --color-vermillion-500: #d06040;
+  --color-vermillion-600: #b85030;
+  --color-vermillion-700: #a04028;
+
+  --color-gold-50: #2a2210;
+  --color-gold-100: #3d3018;
+  --color-gold-400: #d4aa30;
+  --color-gold-500: #b89020;
+  --color-gold-600: #9a7818;
+  --color-gold-700: #806410;
+
+  --color-inkblue-50: #151a22;
+  --color-inkblue-100: #1d2530;
+  --color-inkblue-400: #8aaad0;
+  --color-inkblue-500: #6a8ab5;
+  --color-inkblue-600: #5070a0;
+  --color-inkblue-700: #3d5a85;
+
+  --color-jade-50: #122018;
+  --color-jade-100: #1a3022;
+  --color-jade-400: #6ac490;
+  --color-jade-500: #4aaa70;
+  --color-jade-600: #358a55;
+  --color-jade-700: #257040;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.15);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.20);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.25);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.30);
+}
+
+/* ============================================
+   Body — 宣纸背景 · 淡墨晕染
+   ============================================ */
+
 body {
   background:
-    radial-gradient(ellipse 60% 40% at 15% 10%, rgba(120, 80, 50, 0.06), transparent 70%),
-    radial-gradient(ellipse 50% 50% at 85% 80%, rgba(80, 60, 40, 0.05), transparent 70%),
-    radial-gradient(ellipse 80% 30% at 50% 0%, rgba(100, 70, 45, 0.04), transparent),
-    #0c0a09;
+    radial-gradient(ellipse 60% 40% at 15% 10%, rgba(180, 160, 130, 0.10), transparent 70%),
+    radial-gradient(ellipse 50% 50% at 85% 80%, rgba(160, 140, 110, 0.08), transparent 70%),
+    radial-gradient(ellipse 80% 30% at 50% 0%, rgba(170, 150, 120, 0.06), transparent),
+    var(--color-surface-0);
   min-height: 100vh;
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.7;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* — 噪点纹理覆盖（模拟宣纸质感）— */
+[data-theme="dark"] body {
+  background:
+    radial-gradient(ellipse 60% 40% at 15% 10%, rgba(60, 50, 35, 0.15), transparent 70%),
+    radial-gradient(ellipse 50% 50% at 85% 80%, rgba(50, 40, 30, 0.12), transparent 70%),
+    var(--color-surface-0);
+}
+
+/* ============================================
+   字体层级系统
+   h1: 1.75rem/700   h2: 1.375rem/600   h3: 1.125rem/500
+   body: 15px/1.7    label: 13px/500     caption: 12px
+   ============================================ */
+
+h1, .text-h1 { font-size: 1.75rem; font-weight: 700; line-height: 1.3; letter-spacing: 0.02em; color: var(--color-ink-900); }
+h2, .text-h2 { font-size: 1.375rem; font-weight: 600; line-height: 1.4; color: var(--color-ink-900); }
+h3, .text-h3 { font-size: 1.125rem; font-weight: 500; line-height: 1.5; color: var(--color-ink-700); }
+.text-body { font-size: 0.9375rem; line-height: 1.7; color: var(--color-ink-900); }
+.text-label { font-size: 0.8125rem; font-weight: 500; line-height: 1.5; color: var(--color-ink-500); }
+.text-caption { font-size: 0.75rem; line-height: 1.4; color: var(--color-ink-400); }
+
+/* ============================================
+   宣纸纤维纹理
+   ============================================ */
+
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 9999;
-  opacity: 0.025;
+  z-index: 1;
+  opacity: 0.04;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-repeat: repeat;
   background-size: 256px 256px;
 }
 
-/* — Custom scrollbar — */
+[data-theme="dark"] body::before {
+  opacity: 0.02;
+  mix-blend-mode: soft-light;
+}
+
+/* ============================================
+   Custom scrollbar (墨色)
+   ============================================ */
+
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(200, 170, 130, 0.12) transparent;
+  scrollbar-color: var(--color-border-hover) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -55,28 +200,21 @@ body::before {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgba(200, 170, 130, 0.12);
+  background: var(--color-border-hover);
   border-radius: 999px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(200, 170, 130, 0.22);
+  background: var(--color-border-active);
 }
 
-/* — Animations — */
+/* ============================================
+   Animations
+   ============================================ */
+
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
-}
-
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(192, 80, 48, 0); }
-  50% { box-shadow: 0 0 20px 2px rgba(192, 80, 48, 0.12); }
-}
-
-@keyframes pulse-glow-purple {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(184, 134, 11, 0); }
-  50% { box-shadow: 0 0 20px 2px rgba(184, 134, 11, 0.12); }
 }
 
 @keyframes fade-in {
@@ -84,54 +222,57 @@ body::before {
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes ink-spread {
-  0% { opacity: 0; transform: scale(0.8); filter: blur(8px); }
-  60% { opacity: 0.6; filter: blur(2px); }
-  100% { opacity: 1; transform: scale(1); filter: blur(0); }
-}
-
 .animate-shimmer {
-  background: linear-gradient(90deg, transparent 0%, rgba(200, 170, 130, 0.04) 50%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, var(--color-border-subtle) 50%, transparent 100%);
   background-size: 200% 100%;
   animation: shimmer 2s infinite;
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 3s ease-in-out infinite;
-}
-
-.animate-pulse-glow-purple {
-  animation: pulse-glow-purple 3s ease-in-out infinite;
 }
 
 .animate-fade-in {
   animation: fade-in 0.3s ease-out;
 }
 
-.animate-ink-spread {
-  animation: ink-spread 0.6s ease-out;
-}
+/* ============================================
+   毛玻璃效果
+   ============================================ */
 
-/* — Glass surface utility — */
 .glass {
-  background: rgba(255, 245, 235, 0.02);
-  backdrop-filter: blur(24px) saturate(1.2);
-  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  background: rgba(248, 245, 238, 0.85);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
 }
 
 .glass-strong {
-  background: rgba(12, 10, 9, 0.82);
-  backdrop-filter: blur(40px) saturate(1.4);
-  -webkit-backdrop-filter: blur(40px) saturate(1.4);
+  background: rgba(248, 245, 238, 0.92);
+  backdrop-filter: blur(32px) saturate(1.3);
+  -webkit-backdrop-filter: blur(32px) saturate(1.3);
 }
 
-/* — Ink card utilities — */
+[data-theme="dark"] .glass {
+  background: rgba(26, 23, 20, 0.85);
+}
+
+[data-theme="dark"] .glass-strong {
+  background: rgba(26, 23, 20, 0.92);
+}
+
+/* ============================================
+   水墨卡片
+   ============================================ */
+
 .ink-card {
-  background: rgba(255, 245, 235, 0.025);
-  border: 1px solid rgba(255, 235, 210, 0.06);
+  background: var(--color-surface-1);
+  border: 1px solid var(--color-border-subtle);
   box-shadow:
-    inset 0 1px 0 rgba(255, 245, 235, 0.02),
-    0 0 0 0 transparent;
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    var(--shadow-sm);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+[data-theme="dark"] .ink-card {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    var(--shadow-sm);
 }
 
 .ink-card-accent {
@@ -145,35 +286,65 @@ body::before {
   top: 12px;
   bottom: 12px;
   width: 2px;
-  background: linear-gradient(to bottom, #c05030, rgba(192, 80, 48, 0.2));
+  background: linear-gradient(to bottom, var(--color-vermillion-500), rgba(192, 80, 48, 0.3));
   border-radius: 1px;
 }
 
-/* — Ink divider — */
+[data-theme="dark"] .ink-card-accent::after {
+  background: linear-gradient(to bottom, var(--color-vermillion-400), rgba(208, 96, 64, 0.3));
+}
+
+/* ============================================
+   墨线分隔
+   ============================================ */
+
 .ink-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(200, 170, 130, 0.15), transparent);
+  background: linear-gradient(90deg, transparent, var(--color-border-default), transparent);
 }
 
-.ink-divider-left {
-  height: 1px;
-  background: linear-gradient(90deg, rgba(200, 170, 130, 0.2), transparent);
+/* ============================================
+   输入框表面（主题感知）
+   ============================================ */
+
+.input-surface {
+  background: rgba(80, 65, 50, 0.03);
 }
 
-/* — Input focus glow (warm) — */
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 1px rgba(192, 80, 48, 0.35), 0 0 12px -2px rgba(192, 80, 48, 0.12);
+[data-theme="dark"] .input-surface {
+  background: rgba(200, 180, 150, 0.05);
 }
 
-/* — Range slider styling — */
+/* ============================================
+   悬浮表面
+   ============================================ */
+
+.hover-surface {
+  background: rgba(80, 65, 50, 0.03);
+  transition: background 0.15s ease;
+}
+
+.hover-surface:hover {
+  background: rgba(80, 65, 50, 0.06);
+}
+
+[data-theme="dark"] .hover-surface {
+  background: rgba(200, 180, 150, 0.03);
+}
+
+[data-theme="dark"] .hover-surface:hover {
+  background: rgba(200, 180, 150, 0.06);
+}
+
+/* ============================================
+   滑块样式
+   ============================================ */
+
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   height: 4px;
-  background: rgba(200, 170, 130, 0.1);
+  background: var(--color-border-hover);
   border-radius: 999px;
   outline: none;
 }
@@ -183,9 +354,9 @@ input[type="range"]::-webkit-slider-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #b8860b;
-  border: 2px solid #0c0a09;
-  box-shadow: 0 0 8px rgba(184, 134, 11, 0.35);
+  background: var(--color-gold-500);
+  border: 2px solid var(--color-surface-0);
+  box-shadow: 0 0 6px rgba(139, 105, 20, 0.3);
   cursor: pointer;
   transition: transform 0.15s;
 }
@@ -198,41 +369,51 @@ input[type="range"]::-moz-range-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #b8860b;
-  border: 2px solid #0c0a09;
-  box-shadow: 0 0 8px rgba(184, 134, 11, 0.35);
+  background: var(--color-gold-500);
+  border: 2px solid var(--color-surface-0);
+  box-shadow: 0 0 6px rgba(139, 105, 20, 0.3);
   cursor: pointer;
 }
 
-/* — Selection color (朱砂) — */
+/* ============================================
+   选中色（朱砂）
+   ============================================ */
+
 ::selection {
-  background: rgba(192, 80, 48, 0.3);
-  color: #f5ebe0;
+  background: rgba(192, 80, 48, 0.2);
+  color: var(--color-ink-900);
 }
 
-/* — Gradient text utilities — */
+[data-theme="dark"] ::selection {
+  background: rgba(208, 96, 64, 0.3);
+}
+
+/* ============================================
+   宋体正文（写作区域专用）
+   ============================================ */
+
+.font-writing {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 2;
+  letter-spacing: 0.02em;
+}
+
+/* ============================================
+   渐变文字
+   ============================================ */
+
 .text-gradient-ink {
-  background: linear-gradient(135deg, #d4a574, #c09060);
+  background: linear-gradient(135deg, var(--color-gold-500), var(--color-vermillion-500));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-.text-gradient-blue {
-  background: linear-gradient(135deg, #d4a574, #c09060);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
+/* ============================================
+   渐变边框
+   ============================================ */
 
-.text-gradient-purple {
-  background: linear-gradient(135deg, #c9a06c, #b8860b);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* — Gradient border utility — */
 .border-gradient {
   position: relative;
 }
@@ -243,7 +424,7 @@ input[type="range"]::-moz-range-thumb {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(192, 80, 48, 0.25), rgba(184, 134, 11, 0.15), rgba(200, 170, 130, 0.06));
+  background: linear-gradient(135deg, rgba(192, 80, 48, 0.3), rgba(139, 105, 20, 0.2), rgba(80, 65, 50, 0.08));
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
@@ -251,7 +432,14 @@ input[type="range"]::-moz-range-thumb {
   pointer-events: none;
 }
 
-/* — Ink wash decorative background — */
+[data-theme="dark"] .border-gradient::before {
+  background: linear-gradient(135deg, rgba(208, 96, 64, 0.25), rgba(184, 144, 32, 0.15), rgba(200, 180, 150, 0.06));
+}
+
+/* ============================================
+   水墨晕染背景装饰
+   ============================================ */
+
 .ink-wash-bg {
   position: relative;
 }
@@ -262,12 +450,59 @@ input[type="range"]::-moz-range-thumb {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 40% 30% at 10% 20%, rgba(100, 70, 45, 0.08), transparent),
-    radial-gradient(ellipse 35% 40% at 90% 70%, rgba(80, 55, 35, 0.06), transparent);
+    radial-gradient(ellipse 40% 30% at 10% 20%, rgba(180, 160, 130, 0.08), transparent),
+    radial-gradient(ellipse 35% 40% at 90% 70%, rgba(160, 140, 110, 0.06), transparent);
   z-index: 0;
+}
+
+[data-theme="dark"] .ink-wash-bg::before {
+  background:
+    radial-gradient(ellipse 40% 30% at 10% 20%, rgba(60, 50, 35, 0.12), transparent),
+    radial-gradient(ellipse 35% 40% at 90% 70%, rgba(50, 40, 30, 0.10), transparent);
 }
 
 .ink-wash-bg > * {
   position: relative;
   z-index: 1;
+}
+
+/* ============================================
+   主题切换过渡
+   ============================================ */
+
+*, *::before, *::after {
+  transition-property: background-color, border-color, color, box-shadow, fill, stroke;
+  transition-duration: 0.2s;
+  transition-timing-function: ease;
+}
+
+/* 排除需要更长过渡的元素 */
+.animate-shimmer,
+.animate-fade-in,
+input[type="range"],
+button {
+  transition-duration: 0.15s;
+}
+
+/* ============================================
+   按钮按压效果
+   ============================================ */
+
+.press-effect:active {
+  transform: scale(0.97);
+  transition-duration: 0.1s;
+}
+
+/* ============================================
+   卡片悬浮效果
+   ============================================ */
+
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--color-border-hover);
 }

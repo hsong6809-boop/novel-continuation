@@ -1,6 +1,9 @@
 """FTS5 全文检索服务 - 搜索早期章节的相关片段"""
+import logging
 import re
 from models.database import get_db_ctx
+
+logger = logging.getLogger(__name__)
 
 
 async def search_related_fragments(
@@ -33,7 +36,15 @@ async def search_related_fragments(
 
     async with get_db_ctx() as db:
         try:
-            fts_query = " OR ".join(keywords)
+            # 转义 FTS5 特殊字符，防止查询注入
+            safe_keywords = []
+            for kw in keywords:
+                cleaned = kw.replace('"', '').replace('*', '').replace("'", "")
+                if cleaned:
+                    safe_keywords.append(f'"{cleaned}"')
+            if not safe_keywords:
+                return []
+            fts_query = " OR ".join(safe_keywords)
 
             sql = """
                 SELECT
@@ -67,6 +78,7 @@ async def search_related_fragments(
 
         except Exception:
             # FTS 查询失败时静默返回空列表（关键词可能包含特殊字符）
+            logger.debug("FTS 查询失败: project=%s query=%s", project_id, fts_query[:100])
             return []
 
 

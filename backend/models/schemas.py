@@ -7,30 +7,32 @@ from datetime import datetime
 # ========== 项目 ==========
 class ProjectCreate(BaseModel):
     model_config = {'protected_namespaces': ()}
-    name: str
+    name: str = Field(..., min_length=1, max_length=200)
     genre: Optional[str] = None
     description: Optional[str] = None
     model_provider: str = "deepseek"
     model_name: str = "deepseek-chat"
-    target_words: int = 200000
+    target_words: int = Field(default=200000, ge=1000, le=10000000)
     volume_summaries: Optional[str] = None
     style_notes: Optional[str] = None
     platform: Optional[str] = None
     notes: Optional[str] = None
+    style_ref_chapters: Optional[str] = None
 
 
 class ProjectUpdate(BaseModel):
     model_config = {'protected_namespaces': ()}
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
     genre: Optional[str] = None
     description: Optional[str] = None
     model_provider: Optional[str] = None
     model_name: Optional[str] = None
-    target_words: Optional[int] = None
+    target_words: Optional[int] = Field(None, ge=1000, le=10000000)
     volume_summaries: Optional[str] = None
     style_notes: Optional[str] = None
     platform: Optional[str] = None
     notes: Optional[str] = None
+    style_ref_chapters: Optional[str] = None
 
 
 class ProjectOut(BaseModel):
@@ -48,6 +50,7 @@ class ProjectOut(BaseModel):
     volume_summaries: Optional[str] = None
     platform: Optional[str] = None
     notes: Optional[str] = None
+    style_ref_chapters: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -62,7 +65,10 @@ class ChapterOutlineOut(BaseModel):
     core_objective: Optional[str] = None
     emotional_arc: Optional[str] = None
     hooks: Optional[str] = None
+    rhythm_type: Optional[str] = None
+    chapter_opening: Optional[str] = None
     version: int
+    source: str = 'extracted'
     created_at: str
 
 
@@ -71,22 +77,39 @@ class ChapterOutlineUpdate(BaseModel):
     core_objective: Optional[str] = None
     emotional_arc: Optional[str] = None
     hooks: Optional[str] = None
+    rhythm_type: Optional[str] = None
+    chapter_opening: Optional[str] = None
+
+
+class VolumeOutlineCreate(BaseModel):
+    """创建分卷大纲"""
+    volume_number: int = Field(..., ge=1)
+    name: Optional[str] = None
+    description: Optional[str] = None
+    chapter_start: Optional[int] = Field(None, ge=1)
+    chapter_end: Optional[int] = Field(None, ge=1)
+    core_events: Optional[str] = None
+    emotional_tone: Optional[str] = None
 
 
 # ========== 场景要点 ==========
 class ScenePointCreate(BaseModel):
-    scene_order: int
+    scene_order: int = Field(..., ge=1)
     mission: Optional[str] = None
     key_dialogue_hint: Optional[str] = None
     atmosphere: Optional[str] = None
-    target_words_ratio: float = 0.25
+    target_words_ratio: float = Field(default=0.25, ge=0.0, le=1.0)
+    scene_type: Optional[str] = None
 
 
-class ScenePointUpdate(BaseModel):
+class ScenePointReplace(BaseModel):
+    """用于批量替换场景的模型"""
+    scene_order: int = Field(..., ge=1)
     mission: Optional[str] = None
     key_dialogue_hint: Optional[str] = None
     atmosphere: Optional[str] = None
-    target_words_ratio: Optional[float] = None
+    target_words_ratio: float = Field(default=0.25, ge=0.0, le=1.0)
+    scene_type: Optional[str] = None
 
 
 class ScenePointOut(BaseModel):
@@ -98,6 +121,7 @@ class ScenePointOut(BaseModel):
     key_dialogue_hint: Optional[str] = None
     atmosphere: Optional[str] = None
     target_words_ratio: float
+    scene_type: Optional[str] = None
 
 
 # ========== 章节 ==========
@@ -112,6 +136,8 @@ class ChapterOut(BaseModel):
     status: str
     volume_label: Optional[str] = None
     arc_label: Optional[str] = None
+    self_review_status: Optional[str] = None
+    emotion_peak: Optional[str] = None
     created_at: str
 
 
@@ -125,7 +151,7 @@ class ChapterUpdate(BaseModel):
 
 # ========== 角色 ==========
 class CharacterCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=100)
     role: Optional[str] = None
     age: Optional[str] = None
     personality: Optional[str] = None
@@ -134,6 +160,7 @@ class CharacterCreate(BaseModel):
     background: Optional[str] = None
     relationships: Optional[str] = None
     character_arc_summary: Optional[str] = None
+    spans_all_volumes: bool = False
 
 
 class CharacterUpdate(BaseModel):
@@ -145,6 +172,7 @@ class CharacterUpdate(BaseModel):
     background: Optional[str] = None
     relationships: Optional[str] = None
     character_arc_summary: Optional[str] = None
+    spans_all_volumes: Optional[bool] = None
 
 
 class CharacterOut(BaseModel):
@@ -159,6 +187,7 @@ class CharacterOut(BaseModel):
     background: Optional[str] = None
     relationships: Optional[str] = None
     character_arc_summary: Optional[str] = None
+    spans_all_volumes: bool = False
     created_at: str
 
 
@@ -193,6 +222,14 @@ class StyleParamsUpdate(BaseModel):
 
 
 # ========== 伏笔 ==========
+class ForeshadowingCreate(BaseModel):
+    description: str = Field(..., min_length=1, max_length=2000)
+    planted_chapter: int = Field(default=0, ge=0)
+    expected_reveal_chapter: Optional[int] = Field(None, ge=0)
+    importance: str = Field(default="normal", pattern=r"^(high|normal|low)$")
+    notes: Optional[str] = None
+
+
 class ForeshadowingOut(BaseModel):
     id: int
     project_id: int
@@ -207,13 +244,29 @@ class ForeshadowingOut(BaseModel):
 
 
 class ForeshadowingUpdate(BaseModel):
-    status: Optional[str] = None
-    actual_reveal_chapter: Optional[int] = None
-    importance: Optional[str] = None
+    status: Optional[str] = Field(None, pattern=r"^(active|resolved|dropped)$")
+    actual_reveal_chapter: Optional[int] = Field(None, ge=0)
+    importance: Optional[str] = Field(None, pattern=r"^(high|normal|low)$")
     notes: Optional[str] = None
 
 
 # ========== 时间线 ==========
+class TimelineCreate(BaseModel):
+    chapter_number: int = Field(default=0, ge=0)
+    story_time_description: str = Field(..., min_length=1, max_length=1000)
+    story_date: Optional[str] = None
+    duration: Optional[str] = None
+    summary: Optional[str] = None
+
+
+class TimelineUpdate(BaseModel):
+    chapter_number: Optional[int] = Field(None, ge=0)
+    story_time_description: Optional[str] = Field(None, min_length=1, max_length=1000)
+    story_date: Optional[str] = None
+    duration: Optional[str] = None
+    summary: Optional[str] = None
+
+
 class TimelineOut(BaseModel):
     id: int
     project_id: int
@@ -232,7 +285,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=50000)
+    mode: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

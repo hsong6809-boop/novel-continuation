@@ -1,6 +1,7 @@
 """章节保存服务 - 保存章节内容、版本管理和项目进度更新"""
 import logging
 from models.database import get_db_ctx
+from utils.text_utils import count_chinese_words
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,12 @@ async def _archive_old_version(db, project_id: int, chapter: int):
 
 async def save_chapter(project_id: int, chapter: int, content: str, title: str = None) -> dict:
     """保存章节内容并更新项目统计（自动归档旧版本）"""
-    word_count = len(content)
+    if not content:
+        raise ValueError("章节内容不能为空")
+    if chapter < 1:
+        raise ValueError("章节号必须大于0")
+
+    word_count = count_chinese_words(content)
 
     # 如果没有传入标题，尝试从章纲获取
     if not title:
@@ -86,7 +92,6 @@ async def save_chapter(project_id: int, chapter: int, content: str, title: str =
                    VALUES (?, ?, ?, ?, ?, 'draft')""",
                 (project_id, chapter, title, content, word_count),
             )
-        await db.commit()
 
         await update_project_progress(db, project_id)
         await db.commit()
@@ -128,12 +133,11 @@ async def restore_chapter_version(project_id: int, chapter: int, version_id: int
 
         content = version_row["content"]
         title = version_row["title"]
-        word_count = len(content)
+        word_count = count_chinese_words(content)
         await db.execute(
             "UPDATE chapters SET content=?, word_count=?, title=COALESCE(?, title) WHERE project_id=? AND chapter_number=?",
             (content, word_count, title, project_id, chapter),
         )
-        await db.commit()
 
         await update_project_progress(db, project_id)
         await db.commit()

@@ -1,18 +1,23 @@
 """总纲生成服务"""
 import json
+import logging
 from models.database import get_db_ctx
 from services.llm_client import chat_completion, extract_content
+from services.context_service import load_shared_context
 from utils.json_parser import extract_json
 from utils.prompt_manager import format_prompt
+
+logger = logging.getLogger(__name__)
 
 
 async def generate_overall_outline(project_id: int, custom_instructions: str = None) -> dict:
     """根据已有内容生成/重新生成总纲（不含分卷，分卷由 volume_outline_service 负责）"""
-    async with get_db_ctx() as db:
-        # 加载项目信息
-        cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
-        project = dict(await cursor.fetchone())
+    # 加载共享上下文
+    shared = await load_shared_context(project_id)
+    project = shared["project"]
+    characters = shared["characters"]
 
+    async with get_db_ctx() as db:
         # 加载已有章纲
         cursor = await db.execute(
             """SELECT chapter_number, title, core_objective, emotional_arc, hooks
@@ -22,14 +27,7 @@ async def generate_overall_outline(project_id: int, custom_instructions: str = N
         )
         existing_outlines = [dict(r) for r in await cursor.fetchall()]
 
-        # 加载角色信息
-        cursor = await db.execute(
-            "SELECT name, role, personality FROM characters WHERE project_id=?",
-            (project_id,),
-        )
-        characters = [dict(r) for r in await cursor.fetchall()]
-
-        # 加载伏笔
+        # 加载伏笔（含所有状态，用于总纲展示）
         cursor = await db.execute(
             "SELECT description, planted_chapter, importance, status FROM foreshadowing WHERE project_id=?",
             (project_id,),
@@ -85,7 +83,9 @@ async def generate_overall_outline(project_id: int, custom_instructions: str = N
     "character_arcs": "主要角色弧线概述",
     "story_structure": "整体故事结构（三幕/多幕等）",
     "total_chapters": 60,
-    "future_directions": "后续发展方向建议"
+    "future_directions": "后续发展方向建议",
+    "rhythm_blueprint": "整体节奏蓝图：描述全书的节奏起伏设计，如开篇缓起、中段高潮密集、尾段收束等",
+    "core_appeal": "核心爽点/卖点：本书最吸引读者的核心要素是什么，如何在各卷中持续释放"
 }"""
 
     if custom_instructions:
@@ -98,12 +98,14 @@ async def generate_overall_outline(project_id: int, custom_instructions: str = N
         response = await chat_completion(messages, temperature=0.5, max_tokens=3072)
         raw = extract_content(response)
     except Exception as e:
+        logger.error("总纲生成 AI 调用失败: project=%s", project_id, exc_info=True)
         return {"error": f"AI 调用失败: {str(e)}"}
 
     # 解析 JSON
     try:
         data = extract_json(raw)
     except Exception:
+        logger.error("总纲 JSON 解析失败: project=%s raw=%s", project_id, raw[:200], exc_info=True)
         return {"error": f"JSON 解析失败: {raw[:300]}"}
 
     # 保存到 project.volume_summaries

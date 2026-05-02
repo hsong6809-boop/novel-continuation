@@ -6,9 +6,52 @@ from utils.prompt_manager import format_prompt
 
 logger = logging.getLogger(__name__)
 
+# 预设讨论模式
+DISCUSSION_MODES = {
+    "plot": {
+        "label": "剧情讨论",
+        "focus": """你专注于剧情设计和故事结构分析。请重点讨论：
+- 情节的因果链和逻辑性
+- 伏笔的埋设和回收策略
+- 节奏控制和高潮安排
+- 转折点的设计
+- 与已有剧情的一致性""",
+    },
+    "character": {
+        "label": "角色分析",
+        "focus": """你专注于角色塑造和人物关系分析。请重点讨论：
+- 角色性格的一致性和成长弧线
+- 人物对话的个性化
+- 角色之间的关系动态
+- 角色动机的合理性
+- 配角的立体化""",
+    },
+    "worldview": {
+        "label": "世界观构建",
+        "focus": """你专注于世界观设定和背景构建。请重点讨论：
+- 设定的内在逻辑一致性
+- 世界观的深度和广度
+- 社会制度、文化、地理等设定
+- 设定与剧情的有机融合
+- 避免设定漏洞""",
+    },
+    "style": {
+        "label": "风格指导",
+        "focus": """你专注于写作风格和文学技巧分析。请重点讨论：
+- 叙事视角的选择和运用
+- 描写的密度和节奏
+- 对话的自然度和功能
+- 语言风格的一致性
+- 修辞手法和意象运用""",
+    },
+}
 
-async def handle_chat(project_id: int, message: str) -> dict:
+
+async def handle_chat(project_id: int, message: str, mode: str = None) -> dict:
     """处理对话请求，注入完整项目上下文"""
+    if not message or not message.strip():
+        return {"reply": "消息不能为空", "history": []}
+
     async with get_db_ctx() as db:
         # 1. 加载对话历史
         cursor = await db.execute(
@@ -18,7 +61,12 @@ async def handle_chat(project_id: int, message: str) -> dict:
         history = [dict(r) for r in await cursor.fetchall()]
 
         # 2. 加载项目信息
-        cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
+        cursor = await db.execute(
+            "SELECT id, name, genre, description, model_provider, model_name, "
+            "target_words, current_words, current_chapter, style_notes, "
+            "volume_summaries, platform, notes, created_at, updated_at "
+            "FROM projects WHERE id=?", (project_id,)
+        )
         row = await cursor.fetchone()
         if not row:
             return {"reply": "项目不存在", "history": []}
@@ -99,6 +147,10 @@ async def handle_chat(project_id: int, message: str) -> dict:
 
     system_prompt = format_prompt("chat_system", context=context)
 
+    # 注入讨论模式焦点
+    if mode and mode in DISCUSSION_MODES:
+        system_prompt += f"\n\n## 当前讨论模式：{DISCUSSION_MODES[mode]['label']}\n{DISCUSSION_MODES[mode]['focus']}"
+
     messages = [{"role": "system", "content": system_prompt}]
     for h in history[-20:]:
         messages.append({"role": h["role"], "content": h["content"]})
@@ -123,6 +175,13 @@ async def handle_chat(project_id: int, message: str) -> dict:
         await db.execute(
             "INSERT INTO chat_history (project_id, role, content) VALUES (?, ?, ?)",
             (project_id, "assistant", reply),
+        )
+        # 清理旧记录，保留最近200条
+        await db.execute(
+            """DELETE FROM chat_history WHERE project_id=? AND id NOT IN
+               (SELECT id FROM chat_history WHERE project_id=?
+                ORDER BY created_at DESC LIMIT 200)""",
+            (project_id, project_id),
         )
         await db.commit()
 

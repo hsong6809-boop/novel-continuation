@@ -1,18 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Eye, EyeOff, CheckCircle, Plus, Save, Trash2, Loader2 } from 'lucide-react';
-import { listForeshadowing, updateForeshadowing } from '../api/client';
+import { Eye, EyeOff, Plus, Save, Trash2, Loader2 } from 'lucide-react';
 import api from '../api/client';
+import { useToast } from './ui/Toast';
 
 const STATUS_CONFIG = {
-  active: { label: '活跃', color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
-  resolved: { label: '已回收', color: 'text-green-400', bg: 'bg-green-400/10' },
-  abandoned: { label: '已废弃', color: 'text-gray-500', bg: 'bg-gray-500/10' },
+  active: { label: '活跃', color: 'text-gold-600', bg: 'bg-gold-500/10' },
+  resolved: { label: '已回收', color: 'text-jade-700', bg: 'bg-green-400/10' },
+  abandoned: { label: '已废弃', color: 'text-ink-400', bg: 'bg-gray-500/10' },
 };
 
 const IMPORTANCE_CONFIG = {
   high: { label: '高', color: 'text-red-400', bg: 'bg-red-400/10' },
-  medium: { label: '中', color: 'text-yellow-400', bg: 'bg-yellow-400/10' },
-  low: { label: '低', color: 'text-gray-400', bg: 'bg-gray-400/10' },
+  medium: { label: '中', color: 'text-gold-600', bg: 'bg-gold-500/10' },
+  low: { label: '低', color: 'text-ink-500', bg: 'bg-gray-400/10' },
 };
 
 export default function ForeshadowPanel({ project }) {
@@ -20,8 +20,9 @@ export default function ForeshadowPanel({ project }) {
   const [filter, setFilter] = useState('active');
   const [loading, setLoading] = useState(true);
   const [showNewForm, setShowNewForm] = useState(false);
-  const [newForm, setNewForm] = useState({ keyword: '', description: '', importance: 'medium', expected_reveal_chapter: '' });
+  const [newForm, setNewForm] = useState({ description: '', importance: 'medium', expected_reveal_chapter: '' });
   const [saving, setSaving] = useState(false);
+  const toast = useToast();
 
   useEffect(() => { load(); }, [project.id, filter]);
 
@@ -42,26 +43,24 @@ export default function ForeshadowPanel({ project }) {
       await updateForeshadowing(project.id, id, { status: newStatus });
       await load();
     } catch (e) {
-      alert('更新失败');
+      toast.error('更新失败');
     }
   }
 
   async function handleCreate() {
-    if (!newForm.keyword.trim()) { alert('伏笔关键词不能为空'); return; }
+    if (!newForm.description.trim()) { toast.warning('伏笔描述不能为空'); return; }
     setSaving(true);
     try {
       await api.post(`/projects/${project.id}/foreshadowing`, {
-        keyword: newForm.keyword,
         description: newForm.description,
         importance: newForm.importance,
         expected_reveal_chapter: newForm.expected_reveal_chapter ? parseInt(newForm.expected_reveal_chapter) : null,
-        status: 'active',
       });
       setShowNewForm(false);
-      setNewForm({ keyword: '', description: '', importance: 'medium', expected_reveal_chapter: '' });
+      setNewForm({ description: '', importance: 'medium', expected_reveal_chapter: '' });
       await load();
     } catch (e) {
-      alert('创建失败: ' + (e.response?.data?.detail || e.message));
+      toast.error('创建失败: ' + (e.response?.data?.detail || e.message));
     } finally {
       setSaving(false);
     }
@@ -72,7 +71,7 @@ export default function ForeshadowPanel({ project }) {
       await updateForeshadowing(project.id, id, { [field]: value });
       await load();
     } catch (e) {
-      alert('更新失败');
+      toast.error('更新失败');
     }
   }
 
@@ -81,7 +80,7 @@ export default function ForeshadowPanel({ project }) {
       {/* 工具栏：标题 + 筛选 + 新建 */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <Eye className="w-6 h-6 text-yellow-400" />
+          <Eye className="w-6 h-6 text-gold-600" />
           <h1 className="text-xl font-bold">伏笔管理</h1>
           <div className="flex gap-1.5 ml-2">
             {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
@@ -91,7 +90,7 @@ export default function ForeshadowPanel({ project }) {
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition border ${
                   filter === key
                     ? `${cfg.bg} border-current ${cfg.color}`
-                    : 'bg-white/[0.02] border-border-subtle text-gray-500 hover:text-gray-300'
+                    : 'bg-surface-1 border-border-subtle text-ink-400 hover:text-ink-700'
                 }`}
               >
                 {cfg.label}
@@ -101,7 +100,7 @@ export default function ForeshadowPanel({ project }) {
         </div>
         <button
           onClick={() => setShowNewForm(!showNewForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-amber-600/80 hover:bg-amber-500/80 rounded-lg text-sm transition shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20"
+          className="flex items-center gap-2 px-4 py-2 bg-vermillion-600 hover:bg-vermillion-500 rounded-lg text-sm transition shadow-lg shadow-vermillion-600/10 hover:shadow-vermillion-600/15"
         >
           <Plus className="w-4 h-4" />
           新建伏笔
@@ -113,20 +112,21 @@ export default function ForeshadowPanel({ project }) {
         <div className="border-gradient bg-surface-1 rounded-xl p-5 mb-6 space-y-3 animate-fade-in">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-gray-500 block mb-1">关键词 *</label>
-              <input
-                value={newForm.keyword}
-                onChange={e => setNewForm({ ...newForm, keyword: e.target.value })}
-                placeholder="如：神秘玉佩"
-                className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
+              <label className="text-xs text-ink-400 block mb-1">伏笔描述 *</label>
+              <textarea
+                value={newForm.description}
+                onChange={e => setNewForm({ ...newForm, description: e.target.value })}
+                placeholder="如：主角发现一枚神秘玉佩，上面刻着未知符文..."
+                rows={2}
+                className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 resize-none transition"
               />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">重要性</label>
+              <label className="text-xs text-ink-400 block mb-1">重要性</label>
               <select
                 value={newForm.importance}
                 onChange={e => setNewForm({ ...newForm, importance: e.target.value })}
-                className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
+                className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 transition"
               >
                 <option value="high">高</option>
                 <option value="medium">中</option>
@@ -135,31 +135,21 @@ export default function ForeshadowPanel({ project }) {
             </div>
           </div>
           <div>
-            <label className="text-xs text-gray-500 block mb-1">描述</label>
-            <textarea
-              value={newForm.description}
-              onChange={e => setNewForm({ ...newForm, description: e.target.value })}
-              placeholder="伏笔的具体内容..."
-              rows={2}
-              className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 resize-none transition"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">预期揭示章节</label>
+            <label className="text-xs text-ink-400 block mb-1">预期揭示章节</label>
             <input
               type="number"
               value={newForm.expected_reveal_chapter}
               onChange={e => setNewForm({ ...newForm, expected_reveal_chapter: e.target.value })}
               placeholder="如：15"
-              className="w-full bg-white/[0.03] border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500/30 transition"
+              className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 transition"
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setShowNewForm(false)} className="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200">取消</button>
+            <button onClick={() => setShowNewForm(false)} className="px-3 py-1.5 text-sm text-ink-500 hover:text-ink-900">取消</button>
             <button
               onClick={handleCreate}
               disabled={saving}
-              className="flex items-center gap-1 px-4 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-sm transition shadow-lg shadow-green-500/20"
+              className="flex items-center gap-1 px-4 py-1.5 bg-green-600 hover:bg-green-500 rounded-lg text-sm transition shadow-lg shadow-green-600/15"
             >
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               保存
@@ -171,9 +161,9 @@ export default function ForeshadowPanel({ project }) {
 
       {/* 伏笔列表 */}
       {loading ? (
-        <div className="text-center py-12 text-gray-500">加载中...</div>
+        <div className="text-center py-12 text-ink-400">加载中...</div>
       ) : foreshadows.length === 0 ? (
-        <div className="text-center py-16 text-gray-500">
+        <div className="text-center py-16 text-ink-400">
           <Eye className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p>暂无{STATUS_CONFIG[filter].label}伏笔</p>
           <p className="text-sm mt-1">续写后 AI 会自动提取，也可手动新建</p>
@@ -184,7 +174,7 @@ export default function ForeshadowPanel({ project }) {
             const cfg = STATUS_CONFIG[f.status] || STATUS_CONFIG.active;
             const impCfg = IMPORTANCE_CONFIG[f.importance] || IMPORTANCE_CONFIG.medium;
             return (
-                            <div key={f.id} className="bg-white/[0.02] border border-border-subtle rounded-xl p-4 group">
+                            <div key={f.id} className="bg-surface-1 border border-border-subtle rounded-xl p-4 group">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -194,18 +184,15 @@ export default function ForeshadowPanel({ project }) {
                       <span className={`text-xs px-2 py-0.5 rounded-full ${impCfg.bg} ${impCfg.color}`}>
                         重要性：{impCfg.label}
                       </span>
-                      <span className="text-xs text-gray-600">第{f.planted_chapter}章埋下</span>
-                      {f.resolved_chapter && (
-                        <span className="text-xs text-gray-600">· 第{f.resolved_chapter}章回收</span>
+                      <span className="text-xs text-ink-400">第{f.planted_chapter}章埋下</span>
+                      {f.actual_reveal_chapter && (
+                        <span className="text-xs text-ink-400">· 第{f.actual_reveal_chapter}章回收</span>
                       )}
                       {f.expected_reveal_chapter && (
-                        <span className="text-xs text-cyan-600">· 预期第{f.expected_reveal_chapter}章揭示</span>
+                        <span className="text-xs text-inkblue-600">· 预期第{f.expected_reveal_chapter}章揭示</span>
                       )}
                     </div>
-                    <p className="text-sm font-medium mb-1">{f.keyword}</p>
-                    {f.description && (
-                      <p className="text-sm text-gray-400">{f.description}</p>
-                    )}
+                    <p className="text-sm font-medium mb-1">{f.description}</p>
                   </div>
 
                   {/* 操作 */}
@@ -214,13 +201,13 @@ export default function ForeshadowPanel({ project }) {
                       <>
                         <button
                           onClick={() => handleStatusChange(f.id, 'resolved')}
-                          className="px-2 py-1 text-xs bg-green-500/[0.08] text-green-400 hover:bg-green-500/[0.15] rounded transition"
+                          className="px-2 py-1 text-xs bg-green-600/[0.10] text-jade-700 hover:bg-green-600/[0.15] rounded transition"
                         >
                           ✅ 回收
                         </button>
                         <button
                           onClick={() => handleStatusChange(f.id, 'abandoned')}
-                          className="px-2 py-1 text-xs bg-white/[0.04] text-gray-400 hover:bg-white/[0.06] rounded transition"
+                          className="px-2 py-1 text-xs bg-surface-3 text-ink-500 hover:bg-black/[0.05] rounded transition"
                         >
                           废弃
                         </button>
@@ -229,7 +216,7 @@ export default function ForeshadowPanel({ project }) {
                     {f.status !== 'active' && (
                       <button
                         onClick={() => handleStatusChange(f.id, 'active')}
-                        className="px-2 py-1 text-xs bg-yellow-500/[0.08] text-yellow-400 hover:bg-yellow-500/[0.15] rounded transition"
+                        className="px-2 py-1 text-xs bg-yellow-600/[0.10] text-gold-600 hover:bg-yellow-600/[0.15] rounded transition"
                       >
                         恢复
                       </button>

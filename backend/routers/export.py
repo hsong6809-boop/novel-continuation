@@ -1,9 +1,13 @@
 """导出路由 - 支持 TXT / EPUB / DOCX"""
+import html
 import io
+import logging
 import re
 from urllib.parse import quote
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 
 def clean_ai_artifacts(text: str) -> str:
@@ -40,7 +44,9 @@ async def _load_export_data(project_id: int) -> tuple[dict, list[dict]]:
     async with get_db_ctx() as db:
         cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
         row = await cursor.fetchone()
-        project = dict(row) if row else {}
+        if not row:
+            raise HTTPException(404, "项目不存在")
+        project = dict(row)
 
         cursor = await db.execute(
             """SELECT chapter_number, title, content, word_count
@@ -187,9 +193,9 @@ async def export_epub(project_id: int):
 
     # 封面页
     cover_html = f"""<html><head><link rel="stylesheet" href="style/default.css" /></head>
-    <body><h1>《{project.get('name', '未命名')}》</h1>
-    <p style="text-align:center;color:#666;">{project.get('genre', '')}</p>
-    <p style="text-align:center;">{project.get('description', '')}</p>
+    <body><h1>《{html.escape(project.get('name', '未命名'))}》</h1>
+        <p style="text-align:center;color:#666;">{html.escape(project.get('genre', ''))}</p>
+        <p style="text-align:center;">{html.escape(project.get('description', ''))}</p>
     </body></html>"""
     cover = epub.EpubHtml(title="封面", file_name="cover.xhtml", lang="zh")
     cover.content = cover_html.encode("utf-8")
@@ -204,17 +210,17 @@ async def export_epub(project_id: int):
         title = ch.get("title") or f"第{ch['chapter_number']}章"
         content = clean_ai_artifacts(ch["content"])
 
-        # 按段落分割
+        # 按段落分割，HTML 转义防止注入
         paragraphs = re.split(r'\n\s*\n', content)
         body_parts = []
         for para_text in paragraphs:
             para_text = para_text.strip()
             if para_text:
-                body_parts.append(f"<p>{para_text}</p>")
+                body_parts.append(f"<p>{html.escape(para_text)}</p>")
 
         chapter_html = f"""<html><head>
         <link rel="stylesheet" href="style/default.css" /></head>
-        <body><h1>{title}</h1>
+        <body><h1>{html.escape(title)}</h1>
         {"".join(body_parts)}
         </body></html>"""
 

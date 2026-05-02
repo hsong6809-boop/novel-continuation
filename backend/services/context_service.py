@@ -1,19 +1,133 @@
 """上下文构建服务 - 为续写和章纲生成提供上下文"""
+import asyncio
 from models.database import get_db_ctx
 from utils.prompt_manager import format_prompt
+from utils.cache import (
+    get_cached, set_cached,
+    project_key, characters_key, foreshadowing_key, style_key,
+    invalidate_project,
+)
+
+
+async def _load_project_info(db, project_id: int) -> dict:
+    """加载项目信息（带缓存）"""
+    cached = get_cached(project_key(project_id))
+    if cached is not None:
+        return cached
+    cursor = await db.execute(
+        "SELECT id, name, genre, description, model_provider, model_name, "
+        "target_words, current_words, current_chapter, style_notes, "
+        "volume_summaries, platform, notes, created_at, updated_at "
+        "FROM projects WHERE id=?", (project_id,)
+    )
+    row = await cursor.fetchone()
+    result = dict(row) if row else {}
+    set_cached(project_key(project_id), result)
+    return result
+
+
+async def _load_characters(db, project_id: int) -> list:
+    """加载角色列表（带缓存）"""
+    cached = get_cached(characters_key(project_id))
+    if cached is not None:
+        return cached
+    cursor = await db.execute(
+        "SELECT name, role, personality, speech_style, background, appearance, "
+        "relationships, spans_all_volumes FROM characters WHERE project_id=?",
+        (project_id,),
+    )
+    result = [dict(r) for r in await cursor.fetchall()]
+    set_cached(characters_key(project_id), result)
+    return result
+
+
+async def _load_active_foreshadowing(db, project_id: int) -> list:
+    """加载活跃伏笔（带缓存）"""
+    cached = get_cached(foreshadowing_key(project_id))
+    if cached is not None:
+        return cached
+    cursor = await db.execute(
+        "SELECT description, planted_chapter, expected_reveal_chapter, importance "
+        "FROM foreshadowing WHERE project_id=? AND status='active' ORDER BY planted_chapter",
+        (project_id,),
+    )
+    result = [dict(r) for r in await cursor.fetchall()]
+    set_cached(foreshadowing_key(project_id), result)
+    return result
+
+
+async def load_shared_context(project_id: int, before_chapter: int = None) -> dict:
+    """加载各服务共用的基础上下文数据（共享连接）。
+
+    Args:
+        project_id: 项目ID
+        before_chapter: 若指定，只加载该章之前的数据（用于章纲/分卷生成）
+
+    Returns:
+        dict with keys: project, characters, foreshadowings, snapshots
+    """
+    async with get_db_ctx() as db:
+        # 项目信息（带缓存）
+        project = await _load_project_info(db, project_id)
+
+        # 角色（带缓存）
+        characters = await _load_characters(db, project_id)
+
+        # 活跃伏笔（带缓存）
+        foreshadowings = await _load_active_foreshadowing(db, project_id)
+
+        # 角色快照（每个角色最新）
+        if before_chapter is not None:
+            cursor = await db.execute(
+                """SELECT cs.character_name, cs.current_state, cs.chapter_number
+                   FROM character_snapshots cs
+                   INNER JOIN (
+                       SELECT character_name, MAX(chapter_number) as max_ch
+                       FROM character_snapshots
+                       WHERE project_id=? AND chapter_number < ?
+                       GROUP BY character_name
+                   ) latest ON cs.character_name=latest.character_name
+                          AND cs.chapter_number=latest.max_ch
+                   WHERE cs.project_id=? AND cs.chapter_number < ?
+                   ORDER BY cs.character_name""",
+                (project_id, before_chapter, project_id, before_chapter),
+            )
+        else:
+            cursor = await db.execute(
+                """SELECT cs.character_name, cs.current_state, cs.chapter_number
+                   FROM character_snapshots cs
+                   INNER JOIN (
+                       SELECT character_name, MAX(chapter_number) as max_ch
+                       FROM character_snapshots
+                       WHERE project_id=?
+                       GROUP BY character_name
+                   ) latest ON cs.character_name=latest.character_name
+                          AND cs.chapter_number=latest.max_ch
+                   WHERE cs.project_id=?
+                   ORDER BY cs.character_name""",
+                (project_id, project_id),
+            )
+        snapshots = [dict(r) for r in await cursor.fetchall()]
+
+    return {
+        "project": project,
+        "characters": characters,
+        "foreshadowings": foreshadowings,
+        "snapshots": snapshots,
+    }
 
 
 async def _load_all_context(project_id: int, chapter: int, recent_count: int = 15) -> dict:
     """一次性加载所有上下文数据（共享连接）"""
     async with get_db_ctx() as db:
-        # 项目信息
-        cursor = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
-        project_row = await cursor.fetchone()
-        project = dict(project_row) if project_row else {}
+        # 项目信息（带缓存）
+        project = await _load_project_info(db, project_id)
 
         # 章纲
         cursor = await db.execute(
-            "SELECT * FROM chapter_outlines WHERE project_id=? AND chapter_number=?",
+            "SELECT id, project_id, chapter_number, volume_id, title, "
+            "core_objective, emotional_arc, hooks, rhythm_type, chapter_opening, "
+            "version, created_at FROM chapter_outlines WHERE project_id=? AND chapter_number=?",
             (project_id, chapter),
         )
         outline_row = await cursor.fetchone()
@@ -21,7 +135,9 @@ async def _load_all_context(project_id: int, chapter: int, recent_count: int = 1
 
         # 场景要点
         cursor = await db.execute(
-            "SELECT * FROM scene_points WHERE project_id=? AND chapter_number=? ORDER BY scene_order",
+            "SELECT id, project_id, chapter_number, scene_order, mission, "
+            "key_dialogue_hint, atmosphere, target_words_ratio, scene_type "
+            "FROM scene_points WHERE project_id=? AND chapter_number=? ORDER BY scene_order",
             (project_id, chapter),
         )
         scenes = [dict(r) for r in await cursor.fetchall()]
@@ -38,32 +154,27 @@ async def _load_all_context(project_id: int, chapter: int, recent_count: int = 1
 
         # 风格
         cursor = await db.execute(
-            "SELECT * FROM style_profiles WHERE project_id=?", (project_id,)
+            "SELECT id, project_id, base_analysis, human_notes, "
+            "default_description_density, default_dialogue_ratio, default_pacing "
+            "FROM style_profiles WHERE project_id=?", (project_id,)
         )
         style_row = await cursor.fetchone()
         style = dict(style_row) if style_row else {}
 
-        # 活跃伏笔
-        cursor = await db.execute(
-            "SELECT * FROM foreshadowing WHERE project_id=? AND status='active' ORDER BY planted_chapter",
-            (project_id,),
-        )
-        foreshadowing = [dict(r) for r in await cursor.fetchall()]
+        # 活跃伏笔（带缓存）
+        foreshadowing = await _load_active_foreshadowing(db, project_id)
 
         # 时间线
         cursor = await db.execute(
-            "SELECT * FROM timeline WHERE project_id=? ORDER BY chapter_number DESC LIMIT 10",
+            "SELECT id, project_id, chapter_number, story_time_description, "
+            "story_date, duration, summary FROM timeline WHERE project_id=? ORDER BY chapter_number DESC LIMIT 10",
             (project_id,),
         )
         timeline_rows = await cursor.fetchall()
         timeline = [dict(r) for r in reversed(timeline_rows)]
 
-        # 角色
-        cursor = await db.execute(
-            "SELECT name, role, personality, speech_style, background FROM characters WHERE project_id=?",
-            (project_id,),
-        )
-        characters = [dict(r) for r in await cursor.fetchall()]
+        # 角色（带缓存）
+        characters = await _load_characters(db, project_id)
 
         # 角色快照（每个角色最新）
         cursor = await db.execute(
@@ -104,8 +215,114 @@ async def build_write_preview(project_id: int, chapter: int) -> dict:
     if recent:
         recent_range = f"第{recent[0]['chapter_number']}章 ~ 第{recent[-1]['chapter_number']}章"
 
-    total_chars = sum(len(ch.get("content", "")) for ch in recent)
-    estimated_tokens = int(total_chars * 0.5) + 2000
+    # 构建上下文构成摘要 + 精确 token 预估
+    # token 预估基于实际发送给AI的内容逐项累加
+    # 中文 BPE 约 1 字 = 1.2 tokens，取保守值
+    CHARS_TO_TOKENS = 1.2
+    est_chars = 0  # 累计实际发送的字符数
+    summary = []
+
+    # 1. 项目信息 + 系统提示模板（固定开销）
+    fixed_chars = 300  # 项目信息 + 当前任务 + 系统提示词模板
+    est_chars += fixed_chars
+    summary.append({"name": "项目信息", "detail": ctx["project"].get("name", "未命名")})
+
+    # 2. 章纲
+    outline = ctx["outline"]
+    if outline:
+        oc = len(outline.get("title", "")) + len(outline.get("core_objective", "")) + len(outline.get("emotional_arc", "")) + len(outline.get("hooks", ""))
+        est_chars += oc + 100  # +100 格式标记
+        summary.append({"name": "章纲", "detail": outline.get("title", f"第{chapter}章")})
+
+    # 3. 场景要点
+    scenes = ctx["scenes"]
+    if scenes:
+        sc = sum(len(s.get("mission", "")) + len(s.get("atmosphere", "")) for s in scenes) + len(scenes) * 50
+        est_chars += sc
+        summary.append({"name": "场景要点", "detail": f"{len(scenes)}个场景"})
+
+    # 4. 角色设定
+    chars = ctx["characters"]
+    if chars:
+        cc = sum(len(c.get("name", "")) + len(c.get("role", "")) + len(c.get("personality", "")) for c in chars) + len(chars) * 30
+        est_chars += cc
+        roles = {}
+        for c in chars:
+            r = c.get("role") or "其他"
+            roles[r] = roles.get(r, 0) + 1
+        role_str = "、".join(f"{v}个{k}" for k, v in roles.items())
+        summary.append({"name": "角色设定", "detail": f"{len(chars)}人（{role_str}）"})
+
+    # 5. 角色状态快照
+    snapshots = ctx["snapshots"]
+    if snapshots:
+        snap_c = sum(len(s.get("current_state", "")) + len(s.get("character_name", "")) + 30 for s in snapshots)
+        est_chars += snap_c
+        summary.append({"name": "角色状态", "detail": f"{len(snapshots)}条快照"})
+
+    # 6. 风格参考章节（每章前2000字）
+    style_ref_str = ctx["project"].get("style_ref_chapters") or "1,2,3"
+    try:
+        style_ref_nums = [int(x.strip()) for x in style_ref_str.split(",") if x.strip().isdigit()]
+    except (ValueError, AttributeError):
+        style_ref_nums = [1, 2, 3]
+    ref_label = ",".join(str(n) for n in style_ref_nums)
+
+    style_ref_chars = 0
+    if style_ref_nums:
+        async with get_db_ctx() as db:
+            placeholders = ",".join("?" * len(style_ref_nums))
+            cursor = await db.execute(
+                f"""SELECT chapter_number, content FROM chapters
+                    WHERE project_id=? AND chapter_number IN ({placeholders}) AND content != ''
+                    ORDER BY chapter_number""",
+                [project_id] + style_ref_nums,
+            )
+            style_chs = [dict(r) for r in await cursor.fetchall()]
+        for sc in style_chs:
+            style_ref_chars += min(len(sc.get("content", "")), 2000) + 100  # +100 格式标记
+    est_chars += style_ref_chars
+    summary.append({"name": "风格参考", "detail": f"第{ref_label}章文风锚定（{style_ref_chars}字）"})
+
+    # 7. 活跃伏笔
+    fs = ctx["foreshadowing"]
+    if fs:
+        fs_chars = sum(len(f.get("description", "")) + 40 for f in fs)
+        est_chars += fs_chars
+        summary.append({"name": "活跃伏笔", "detail": f"{len(fs)}条（{fs_chars}字）"})
+
+    # 8. 前文回顾（全量正文，非摘要）
+    recent_chars = 0
+    if recent:
+        for ch in recent:
+            recent_chars += len(ch.get("content", "")) + len(ch.get("title", "")) + 50  # +50 格式标记
+        est_chars += recent_chars
+        summary.append({"name": "前文回顾", "detail": f"最近{len(recent)}章全文（{recent_chars}字）"})
+
+    # 9. FTS5 早期片段 + 设定库（并行加载）
+    from services.fts_service import get_early_chapter_fragments
+    from services.settings_library_service import get_settings_for_context
+    import asyncio
+    early_frags, settings_text = await asyncio.gather(
+        get_early_chapter_fragments(project_id, chapter),
+        get_settings_for_context(project_id),
+    )
+    frag_chars = 0
+    if early_frags:
+        frag_chars = sum(len(f.get("snippet", "")) + len(f.get("title", "")) + 50 for f in early_frags)
+        est_chars += frag_chars
+        summary.append({"name": "早期片段", "detail": f"FTS5检索{len(early_frags)}段（{frag_chars}字）"})
+
+    settings_chars = 0
+    if settings_text:
+        settings_chars = len(settings_text)
+        est_chars += settings_chars
+        setting_lines = [l for l in settings_text.strip().split("\n") if l.strip() and not l.startswith("#")]
+        summary.append({"name": "世界观设定", "detail": f"{len(setting_lines)}条（{settings_chars}字）"})
+
+    # 计算总 token
+    estimated_tokens = int(est_chars * CHARS_TO_TOKENS)
+    summary.append({"name": "总计", "detail": f"{est_chars}字 ≈ {estimated_tokens} tokens"})
 
     return {
         "chapter_number": chapter,
@@ -120,6 +337,7 @@ async def build_write_preview(project_id: int, chapter: int) -> dict:
         "recent_chapters": recent,
         "characters": ctx["characters"],
         "project": ctx["project"],
+        "context_summary": summary,
     }
 
 
@@ -166,14 +384,29 @@ async def build_continuation_messages(project_id: int, chapter: int,
         for s in snapshots:
             context += f"\n- {s['character_name']}: {s['current_state']}（第{s['chapter_number']}章）"
 
-    style = preview.get("style_params")
-    if style:
-        context += f"""
+    # 风格参考：加载指定章节正文作为文风锚点
+    style_ref_str = project.get('style_ref_chapters') or '1,2,3'
+    try:
+        style_ref_nums = [int(x.strip()) for x in style_ref_str.split(',') if x.strip().isdigit()]
+    except (ValueError, AttributeError):
+        style_ref_nums = [1, 2, 3]
 
-## 风格要求
-- 描写密度：{style.get('default_description_density', 3)}/5
-- 对话比例：{style.get('default_dialogue_ratio', 3)}/5
-- 节奏：{style.get('default_pacing', 'medium')}"""
+    if style_ref_nums:
+        async with get_db_ctx() as db:
+            placeholders = ','.join('?' * len(style_ref_nums))
+            cursor = await db.execute(
+                f"""SELECT chapter_number, title, content FROM chapters
+                    WHERE project_id=? AND chapter_number IN ({placeholders}) AND content != ''
+                    ORDER BY chapter_number""",
+                [project_id] + style_ref_nums,
+            )
+            style_chapters = [dict(r) for r in await cursor.fetchall()]
+
+        if style_chapters:
+            context += "\n\n## 风格参考（请严格对齐以下文本的文风：句式、用词、节奏、对话风格）"
+            for sc in style_chapters:
+                excerpt = sc.get("content", "")[:2000]
+                context += f"\n### 第{sc['chapter_number']}章 {sc.get('title', '')}\n{excerpt}\n"
 
     foreshadowing = preview.get("active_foreshadowing", [])
     if foreshadowing:
@@ -183,18 +416,24 @@ async def build_continuation_messages(project_id: int, chapter: int,
 
     recent = preview.get("recent_chapters", [])
     if recent:
-        context += "\n\n## 前文回顾"
+        context += "\n\n## 前文回顾（最近章节全文）"
         for ch in recent:
-            summary = ch.get("summary") or ch.get("content", "")[:200]
-            context += f"\n### 第{ch['chapter_number']}章 {ch.get('title', '')}\n{summary}\n"
+            context += f"\n### 第{ch['chapter_number']}章 {ch.get('title', '')}\n{ch.get('content', '')}\n"
 
-    # FTS5 早期章节片段注入
+    # FTS5 早期章节片段 + 世界观设定库并行加载
     from services.fts_service import get_early_chapter_fragments
-    early_fragments = await get_early_chapter_fragments(project_id, chapter)
+    from services.settings_library_service import get_settings_for_context
+    early_fragments, settings_text = await asyncio.gather(
+        get_early_chapter_fragments(project_id, chapter),
+        get_settings_for_context(project_id),
+    )
     if early_fragments:
         context += "\n\n## 早期章节相关片段（供呼应参考）"
         for frag in early_fragments:
-            context += f"\n### 第{frag['chapter_number']}章 {frag.get('title', '')}（片段）\n{frag['snippet']}\n"
+            context += f"### 第{frag['chapter_number']}章 {frag.get('title', '')}（片段）\n{frag['snippet']}\n"
+
+    if settings_text:
+        context += f"\n\n## 世界观设定\n{settings_text}"
 
     if custom_instructions:
         context += f"\n\n## 额外要求\n{custom_instructions}"

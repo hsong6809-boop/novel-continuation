@@ -1,10 +1,15 @@
 """全局设置路由"""
 import json
+import logging
+import os
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from config import BASE_DIR
+from utils.settings_cache import load_settings, invalidate_cache
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -40,19 +45,28 @@ DEFAULT_SETTINGS = {
 
 
 def _load() -> dict:
-    if SETTINGS_FILE.exists():
-        try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return DEFAULT_SETTINGS.copy()
+    data = load_settings()
+    if not data:
+        return DEFAULT_SETTINGS.copy()
+    return data
 
 
 def _save(data: dict):
+    """保存设置（原子写入，防止并发读写损坏）"""
+    import tempfile
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    fd, tmp_path = tempfile.mkstemp(dir=str(SETTINGS_FILE.parent), suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, str(SETTINGS_FILE))
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+    invalidate_cache()
 
 
 class ProviderUpdate(BaseModel):
@@ -62,6 +76,7 @@ class ProviderUpdate(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
+    model_config = {'protected_namespaces': ()}
     active_provider: Optional[str] = None
     active_model: Optional[str] = None
     provider: Optional[str] = None  # 要更新哪个 provider 的配置
@@ -76,7 +91,7 @@ async def get_settings():
     # 隐藏 API key 中间部分，只显示前4后4
     safe = json.loads(json.dumps(data))
     for pname, pcfg in safe.get("api_providers", {}).items():
-        key = pcfg.get("api_key", "")
+        key = pcfg.pop("api_key", "")
         if len(key) > 8:
             pcfg["api_key_masked"] = key[:4] + "****" + key[-4:]
         else:
@@ -147,9 +162,52 @@ class FetchModelsRequest(BaseModel):
     api_key: str
 
 
+@router.get("/default-prompts")
+async def get_default_prompts():
+    """返回所有功能的默认提示词模板"""
+    from utils.prompt_manager import DEFAULT_TEMPLATES
+    return DEFAULT_TEMPLATES
+
+
 @router.post("/models")
 async def fetch_available_models(req: FetchModelsRequest):
     """根据 base_url 和 api_key 自动拉取模型列表（OpenAI 兼容格式：{base_url}/models）"""
+    # SSRF 防护：禁止内网地址
+    from urllib.parse import urlparse
+    import socket
+    import ipaddress
+    parsed = urlparse(req.base_url)
+    hostname = parsed.hostname or ""
+
+    logger.info(f"SSRF check: hostname={hostname}, base_url={req.base_url}")
+
+    # 检查是否是 IP 地址
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            logger.warning(f"SSRF blocked: private IP access attempt from {hostname}")
+            raise HTTPException(400, "不允许访问内网地址")
+        # 公共 IP，通过检查，继续执行
+    except ValueError:
+        pass  # hostname 不是 IP，继续
+
+    # 检查常见的本地/保留域名
+    blocked = ['localhost', 'metadata.google.internal', '169.254.169.254']
+    if hostname in blocked or hostname.endswith('.local'):
+        logger.warning(f"SSRF blocked: reserved domain attempt from {hostname}")
+        raise HTTPException(400, "不允许访问保留域名")
+
+    # DNS 解析后检查所有解析到的 IP（防 DNS Rebinding 攻击）
+    try:
+        results = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for family, _, _, _, sockaddr in results:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                logger.warning(f"SSRF blocked: domain {hostname} resolved to private IP {sockaddr[0]}")
+                raise HTTPException(400, "域名解析到内网地址，已拦截")
+    except socket.gaierror:
+        raise HTTPException(400, "无法解析域名")
+
     base = req.base_url.rstrip("/")
     models_url = base + "/models"
 
@@ -165,7 +223,8 @@ async def fetch_available_models(req: FetchModelsRequest):
     except httpx.HTTPStatusError as e:
         raise HTTPException(400, f"API 返回错误 {e.response.status_code}，请检查 API Key")
     except Exception as e:
-        raise HTTPException(400, f"请求失败: {str(e)}")
+        logger.error("获取模型列表失败: url=%s", req.base_url, exc_info=True)
+        raise HTTPException(500, "无法获取模型列表，请检查 API 地址和密钥")
 
     # 解析模型列表，兼容 OpenAI 格式 {"data": [{"id": "xxx", ...}]}
     models = []

@@ -1,24 +1,20 @@
 """通用 LLM 调用客户端 - 从 settings.json 读取 API 配置"""
 import json
+import logging
 import asyncio
 import httpx
 from pathlib import Path
 from config import BASE_DIR
+from utils.settings_cache import load_settings
 
-SETTINGS_FILE = BASE_DIR / "data" / "settings.json"
+logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 2
 RETRY_BASE_DELAY = 1.0  # 秒
 
 
 def _load_settings() -> dict:
-    if SETTINGS_FILE.exists():
-        try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+    return load_settings()
 
 
 def get_active_config() -> dict:
@@ -64,14 +60,13 @@ def get_model_for_feature(feature: str) -> dict:
     }
 
 
-async def chat_completion(messages: list, model: str = None,
-                          temperature: float = 0.7,
-                          max_tokens: int = 4096,
-                          feature: str = None) -> dict:
-    """调用 OpenAI 兼容的 chat/completions 接口（带指数退避重试）
+def _prepare_request(messages: list, model: str = None,
+                     temperature: float = 0.7, max_tokens: int = 4096,
+                     feature: str = None, stream: bool = False) -> tuple:
+    """准备请求参数（共享逻辑）
 
-    Args:
-        feature: 功能标识，用于按功能选择不同模型。None 时使用全局模型。
+    Returns:
+        (url, headers, payload, timeout)
     """
     cfg = get_model_for_feature(feature) if feature else get_active_config()
     if not cfg["base_url"] or not cfg["api_key"]:
@@ -91,23 +86,52 @@ async def chat_completion(messages: list, model: str = None,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if stream:
+        payload["stream"] = True
 
+    if stream:
+        timeout = httpx.Timeout(connect=30, read=300, write=30, pool=30)
+    else:
+        timeout = httpx.Timeout(connect=30, read=120, write=30, pool=30)
+    return url, headers, payload, timeout
+
+
+async def _retry_loop(coro_factory, max_retries: int = MAX_RETRIES):
+    """通用重试循环（带指数退避）"""
     last_error = None
-    for attempt in range(MAX_RETRIES + 1):
+    for attempt in range(max_retries + 1):
         try:
-            async with httpx.AsyncClient(timeout=120) as client:
-                resp = await client.post(url, json=payload, headers=headers)
-                resp.raise_for_status()
-                return resp.json()
+            return await coro_factory()
         except (httpx.HTTPStatusError, httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as e:
             last_error = e
-            if attempt < MAX_RETRIES:
-                # 429 或 5xx 错误时重试
+            if attempt < max_retries:
                 if isinstance(e, httpx.HTTPStatusError) and e.response.status_code < 500 and e.response.status_code != 429:
                     raise
                 await asyncio.sleep(RETRY_BASE_DELAY * (2 ** attempt))
             else:
                 raise
+
+
+async def chat_completion(messages: list, model: str = None,
+                          temperature: float = 0.7,
+                          max_tokens: int = 4096,
+                          feature: str = None) -> dict:
+    """调用 OpenAI 兼容的 chat/completions 接口（带指数退避重试）
+
+    Args:
+        feature: 功能标识，用于按功能选择不同模型。None 时使用全局模型。
+    """
+    url, headers, payload, timeout = _prepare_request(
+        messages, model, temperature, max_tokens, feature, stream=False
+    )
+
+    async def do_request():
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+
+    return await _retry_loop(do_request)
 
 
 def extract_content(response: dict) -> str:
@@ -127,47 +151,36 @@ async def chat_completion_stream(messages: list, model: str = None,
     Args:
         feature: 功能标识，用于按功能选择不同模型。None 时使用全局模型。
     """
-    cfg = get_model_for_feature(feature) if feature else get_active_config()
-    if not cfg["base_url"] or not cfg["api_key"]:
-        raise ValueError("未配置 API Provider，请在设置页面填写 Base URL 和 API Key")
-    if not cfg["model"]:
-        raise ValueError("未选择模型，请在设置页面选择一个默认模型")
+    url, headers, payload, timeout = _prepare_request(
+        messages, model, temperature, max_tokens, feature, stream=True
+    )
 
-    use_model = model or cfg["model"]
-    url = cfg["base_url"].rstrip("/") + "/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {cfg['api_key']}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": use_model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "stream": True,
-    }
+    async def do_request():
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk["choices"][0].get("delta", {})
+                        text = delta.get("content", "")
+                        if text:
+                            yield text
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
 
+    # 流式函数需要特殊处理重试
     last_error = None
     for attempt in range(MAX_RETRIES + 1):
         try:
-            async with httpx.AsyncClient(timeout=180) as client:
-                async with client.stream("POST", url, json=payload, headers=headers) as resp:
-                    resp.raise_for_status()
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        data_str = line[6:]
-                        if data_str.strip() == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            delta = chunk["choices"][0].get("delta", {})
-                            text = delta.get("content", "")
-                            if text:
-                                yield text
-                        except (json.JSONDecodeError, KeyError, IndexError):
-                            continue
-            return  # 成功完成，退出重试循环
+            async for text in do_request():
+                yield text
+            return
         except (httpx.HTTPStatusError, httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as e:
             last_error = e
             if attempt < MAX_RETRIES:
