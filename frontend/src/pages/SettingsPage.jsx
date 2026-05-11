@@ -107,31 +107,33 @@ export default function SettingsPage() {
     setSaving(true);
     setSaved(false);
     try {
-      // 先保存各 provider 配置
+      // 一次性保存所有 provider 配置（避免并行请求互相覆盖）
+      const providersUpdate = {};
       for (const [name, cfg] of Object.entries(settings.api_providers || {})) {
-        await updateSettings({
-          provider: name,
-          provider_config: {
-            base_url: cfg.base_url,
-            api_key: cfg.api_key,
-            default_model: cfg.default_model,
-          },
-        });
+        const providerConfig = {
+          base_url: cfg.base_url,
+          default_model: cfg.default_model,
+        };
+        if (cfg.api_key && cfg.api_key.trim()) {
+          providerConfig.api_key = cfg.api_key;
+        }
+        providersUpdate[name] = providerConfig;
       }
-      // 同步 active_model：确保与 active_provider 的 default_model 一致
+      // 同步 active_model：以用户在"当前使用的模型"中选择的为准
       const ap = settings.active_provider;
-      const providerDefault = settings.api_providers?.[ap]?.default_model || '';
-      const modelToSave = providerDefault || settings.active_model || '';
+      const modelToSave = settings.active_model || settings.api_providers?.[ap]?.default_model || '';
+      // 一次请求保存全部
       await updateSettings({
         active_provider: ap,
         active_model: modelToSave,
         model_configs: settings.model_configs || {},
         prompts: settings.prompts || {},
+        api_providers: providersUpdate,
       });
-      // 本地也同步，避免 Layout 显示旧值
       setSettings(prev => ({ ...prev, active_model: modelToSave }));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      window.dispatchEvent(new Event('settings-changed'));
     } catch (e) {
       toast.error('保存失败: ' + (e.response?.data?.detail || e.message));
     } finally {
@@ -142,14 +144,15 @@ export default function SettingsPage() {
   /** 拉取某个 provider 的可用模型列表 */
   async function handleFetchModels(name) {
     const cfg = settings.api_providers?.[name];
-    if (!cfg?.base_url || !cfg?.api_key) {
-      setModelErrors(prev => ({ ...prev, [name]: '请先填写 Base URL 和 API Key' }));
+    if (!cfg?.base_url) {
+      setModelErrors(prev => ({ ...prev, [name]: '请先填写 Base URL' }));
       return;
     }
     setModelLoading(prev => ({ ...prev, [name]: true }));
     setModelErrors(prev => ({ ...prev, [name]: '' }));
     try {
-      const data = await fetchModels(cfg.base_url, cfg.api_key);
+      // api_key 可能为空（加载时被隐藏），后端会从 settings 中读取已保存的 key
+      const data = await fetchModels(cfg.base_url, cfg.api_key || '', name);
       const models = data.models || [];
       setModelLists(prev => ({ ...prev, [name]: models }));
       // 如果当前 default_model 不在列表里，自动选第一个
@@ -174,19 +177,37 @@ export default function SettingsPage() {
     }));
   }
 
-  function addProvider() {
-    const name = prompt('输入新 Provider 名称（英文）：');
+  // 在任意 provider 里选模型 = 同时切换为当前使用的模型
+  function selectModel(name, model) {
+    updateProvider(name, 'default_model', model);
+    setSettings(prev => ({
+      ...prev,
+      active_provider: name,
+      active_model: model,
+    }));
+  }
+
+  function addProvider(presetName) {
+    const name = presetName || prompt('输入新 Provider 名称（英文）：');
     if (!name || !name.trim()) return;
     const key = name.trim().toLowerCase();
     if (settings.api_providers?.[key]) {
       toast.warning('该 Provider 已存在');
       return;
     }
+    const presets = {
+      'openai-compatible': { base_url: '', api_key: '', default_model: '' },
+      'siliconflow': { base_url: 'https://api.siliconflow.cn/v1', api_key: '', default_model: '' },
+      'zhipu': { base_url: 'https://open.bigmodel.cn/api/paas/v4', api_key: '', default_model: '' },
+      'moonshot': { base_url: 'https://api.moonshot.cn/v1', api_key: '', default_model: '' },
+      'qwen': { base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', api_key: '', default_model: '' },
+    };
+    const cfg = presets[key] || { base_url: '', api_key: '', default_model: '' };
     setSettings(prev => ({
       ...prev,
       api_providers: {
         ...prev.api_providers,
-        [key]: { base_url: '', api_key: '', default_model: '' },
+        [key]: cfg,
       },
     }));
   }
@@ -314,7 +335,16 @@ export default function SettingsPage() {
                 onChange={e => {
                   const provider = e.target.value;
                   const model = settings.api_providers?.[provider]?.default_model || '';
-                  setSettings(prev => ({ ...prev, active_provider: provider, active_model: model }));
+                  // 同时更新 active_provider, active_model 和该 provider 的 default_model
+                  setSettings(prev => ({
+                    ...prev,
+                    active_provider: provider,
+                    active_model: model,
+                    api_providers: {
+                      ...prev.api_providers,
+                      [provider]: { ...prev.api_providers[provider], default_model: model },
+                    },
+                  }));
                 }}
                 className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 transition"
               >
@@ -328,7 +358,7 @@ export default function SettingsPage() {
               {models.length > 0 ? (
                 <select
                   value={settings.active_model || ''}
-                  onChange={e => setSettings(prev => ({ ...prev, active_model: e.target.value }))}
+                  onChange={e => selectModel(settings.active_provider, e.target.value)}
                   className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 transition"
                 >
                   {models.map(m => (
@@ -338,7 +368,7 @@ export default function SettingsPage() {
               ) : (
                 <input
                   value={settings.active_model || ''}
-                  onChange={e => setSettings(prev => ({ ...prev, active_model: e.target.value }))}
+                  onChange={e => selectModel(settings.active_provider, e.target.value)}
                   placeholder="请先在下方获取模型列表"
                   className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 transition"
                 />
@@ -388,13 +418,27 @@ export default function SettingsPage() {
             <h2 className="text-base font-semibold text-ink-700 flex items-center gap-2">
               <Server className="w-4 h-4 text-vermillion-600" /> API Provider 配置
             </h2>
-            <button
-              onClick={addProvider}
-              className="flex items-center gap-1 px-3 py-1.5 bg-surface-3 hover:bg-black/[0.05] rounded-lg text-xs transition"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              添加 Provider
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => addProvider()}
+                className="flex items-center gap-1 px-3 py-1.5 bg-surface-3 hover:bg-black/[0.05] rounded-lg text-xs transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                添加 Provider
+              </button>
+              <select
+                onChange={e => { if (e.target.value) { addProvider(e.target.value); e.target.value = ''; } }}
+                defaultValue=""
+                className="px-2 py-1.5 bg-surface-3 hover:bg-black/[0.05] rounded-lg text-xs transition border-0 cursor-pointer"
+              >
+                <option value="" disabled>快捷添加</option>
+                <option value="openai-compatible">OpenAI 兼容</option>
+                <option value="siliconflow">SiliconFlow</option>
+                <option value="zhipu">智谱 GLM</option>
+                <option value="moonshot">Moonshot</option>
+                <option value="qwen">通义千问</option>
+              </select>
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -405,12 +449,12 @@ export default function SettingsPage() {
 
               return (
                 <div key={name} className="bg-surface-1 border border-border-subtle rounded-xl p-5 space-y-3">
-                  <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm">{name}</span>
-                      {settings.active_provider === name && (
-                        <span className="text-xs px-2 py-0.5 bg-vermillion-600/15 text-vermillion-600 rounded-full">当前</span>
-                      )}
+                        <span className="font-medium text-sm">{name}</span>
+                        {settings.active_provider === name && cfg.default_model === settings.active_model && (
+                          <span className="text-xs px-2 py-0.5 bg-jade-600/15 text-jade-600 rounded-full">✓ 当前使用</span>
+                        )}
                     </div>
                     <button
                       onClick={() => removeProvider(name)}
@@ -438,7 +482,7 @@ export default function SettingsPage() {
                         type={showKeys[name] ? 'text' : 'password'}
                         value={cfg.api_key || ''}
                         onChange={e => updateProvider(name, 'api_key', e.target.value)}
-                        placeholder="sk-..."
+                        placeholder={cfg.api_key_masked ? `已保存：${cfg.api_key_masked}（不修改请留空）` : "sk-..."}
                         className="w-full input-surface border border-border-default rounded-lg px-3 py-2 pr-10 text-sm focus:ring-1 focus:ring-vermillion-500/40 transition"
                       />
                       <button
@@ -490,7 +534,7 @@ export default function SettingsPage() {
                     {providerModels.length > 0 ? (
                       <select
                         value={cfg.default_model || ''}
-                        onChange={e => updateProvider(name, 'default_model', e.target.value)}
+                        onChange={e => selectModel(name, e.target.value)}
                         className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 transition"
                       >
                         {providerModels.map(m => (
@@ -500,7 +544,7 @@ export default function SettingsPage() {
                     ) : (
                       <input
                         value={cfg.default_model || ''}
-                        onChange={e => updateProvider(name, 'default_model', e.target.value)}
+                        onChange={e => selectModel(name, e.target.value)}
                         placeholder="点击上方按钮自动获取，或手动输入"
                         className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 transition"
                       />
@@ -570,7 +614,19 @@ export default function SettingsPage() {
 
                       <textarea
                         value={displayPrompt}
-                        onChange={e => updatePrompt(key, e.target.value)}
+                        onChange={e => {
+                          const newValue = e.target.value;
+                          if (newValue !== defaultPrompt) {
+                            updatePrompt(key, newValue);
+                          } else {
+                            // 用户改回了默认内容，移除自定义标记
+                            setSettings(prev => {
+                              const prompts = { ...prev.prompts };
+                              delete prompts[key];
+                              return { ...prev, prompts };
+                            });
+                          }
+                        }}
                         rows={Math.max(8, displayPrompt.split('\n').length + 1)}
                         className={`w-full border rounded-lg px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-vermillion-500/40 resize-y transition ${
                           hasCustom

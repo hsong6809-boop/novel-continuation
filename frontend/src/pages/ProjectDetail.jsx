@@ -37,6 +37,9 @@ export default function ProjectDetail() {
   const [focusChapter, setFocusChapter] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  // LRU 标签页缓存：最多同时挂载 5 个标签页，超出时卸载最久未访问的
+  const MAX_VISITED_TABS = 5;
+  const [visitedTabs, setVisitedTabs] = useState(['write']);
   const toast = useToast();
 
   useEffect(() => {
@@ -79,6 +82,15 @@ export default function ProjectDetail() {
 
   function handleSwitchTab(tab) {
     setActiveTab(tab);
+    // LRU：将当前 tab 移到末尾（最近访问），超出上限时移除最旧的
+    setVisitedTabs(prev => {
+      const filtered = prev.filter(t => t !== tab);
+      filtered.push(tab);
+      if (filtered.length > MAX_VISITED_TABS) {
+        filtered.shift();
+      }
+      return filtered;
+    });
     if (tab !== 'outline') {
       setFocusChapter(null);
     }
@@ -99,31 +111,6 @@ export default function ProjectDetail() {
       URL.revokeObjectURL(url);
     } catch (e) {
       toast.error('导出失败: ' + e.message);
-    }
-  }
-
-  function renderPanel() {
-    switch (activeTab) {
-      case 'write':
-        return <WriteWizard project={project} onRefresh={loadProject} onSwitchTab={handleSwitchTab} onSetFocusChapter={setFocusChapter} />;
-      case 'import':
-        return <ImportPanel project={project} onImported={loadProject} />;
-      case 'outline':
-        return <OutlinePanel project={project} onRefresh={loadProject} focusChapter={focusChapter} />;
-      case 'characters':
-        return <CharacterPanel project={project} onRefresh={loadProject} />;
-      case 'style':
-        return <StylePanel project={project} onRefresh={loadProject} />;
-      case 'foreshadow':
-        return <ForeshadowPanel project={project} />;
-            case 'timeline':
-        return <TimelinePanel project={project} />;
-      case 'settings':
-        return <SettingsLibraryPanel project={project} />;
-      case 'chat':
-        return <ChatPanel project={project} />;
-      default:
-        return null;
     }
   }
 
@@ -207,9 +194,53 @@ export default function ProjectDetail() {
         <Menu className="w-5 h-5" />
       </button>
 
-      {/* 主工作区 */}
+      {/* 主工作区 - 用 visitedTabs + display:none 保留已访问标签页的状态 */}
       <div className="flex-1 overflow-auto">
-        {renderPanel()}
+        {visitedTabs.includes('write') && (
+          <div style={{ display: activeTab === 'write' ? 'block' : 'none' }}>
+            <WriteWizard project={project} onRefresh={loadProject} onSwitchTab={handleSwitchTab} onSetFocusChapter={setFocusChapter} />
+          </div>
+        )}
+        {visitedTabs.includes('import') && (
+          <div style={{ display: activeTab === 'import' ? 'block' : 'none' }}>
+            <ImportPanel project={project} onImported={loadProject} />
+          </div>
+        )}
+        {visitedTabs.includes('outline') && (
+          <div style={{ display: activeTab === 'outline' ? 'block' : 'none' }}>
+            <OutlinePanel project={project} onRefresh={loadProject} focusChapter={focusChapter} />
+          </div>
+        )}
+        {visitedTabs.includes('characters') && (
+          <div style={{ display: activeTab === 'characters' ? 'block' : 'none' }}>
+            <CharacterPanel project={project} onRefresh={loadProject} />
+          </div>
+        )}
+        {visitedTabs.includes('style') && (
+          <div style={{ display: activeTab === 'style' ? 'block' : 'none' }}>
+            <StylePanel project={project} onRefresh={loadProject} />
+          </div>
+        )}
+        {visitedTabs.includes('foreshadow') && (
+          <div style={{ display: activeTab === 'foreshadow' ? 'block' : 'none' }}>
+            <ForeshadowPanel project={project} />
+          </div>
+        )}
+        {visitedTabs.includes('timeline') && (
+          <div style={{ display: activeTab === 'timeline' ? 'block' : 'none' }}>
+            <TimelinePanel project={project} />
+          </div>
+        )}
+        {visitedTabs.includes('settings') && (
+          <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
+            <SettingsLibraryPanel project={project} />
+          </div>
+        )}
+        {visitedTabs.includes('chat') && (
+          <div style={{ display: activeTab === 'chat' ? 'block' : 'none' }}>
+            <ChatPanel project={project} />
+          </div>
+        )}
       </div>
     </div>
   );

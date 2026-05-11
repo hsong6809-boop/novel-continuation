@@ -5,7 +5,7 @@ from typing import List
 from models.database import get_db_ctx
 from models.schemas import CharacterCreate, CharacterUpdate, CharacterOut, CharacterSnapshotOut
 from ._common import _filter_fields, CHARACTER_FIELDS
-from utils.cache import invalidate_project
+from utils.cache import invalidate_project, get_cached, set_cached, characters_key
 
 logger = logging.getLogger(__name__)
 
@@ -14,11 +14,16 @@ router = APIRouter(prefix="/api/projects", tags=["characters"])
 
 @router.get("/{project_id}/characters", response_model=List[CharacterOut])
 async def list_characters(project_id: int):
+    cached = get_cached(characters_key(project_id))
+    if cached is not None:
+        return cached
     async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT * FROM characters WHERE project_id=? ORDER BY name", (project_id,)
         )
-        return [dict(r) for r in await cursor.fetchall()]
+        result = [dict(r) for r in await cursor.fetchall()]
+        set_cached(characters_key(project_id), result)
+        return result
 
 
 @router.get("/{project_id}/characters/by-volume")
@@ -42,7 +47,7 @@ async def list_characters_by_volume(project_id: int, chapter: int = None):
         current_volume = None
         if chapter:
             for v in volumes:
-                if v["chapter_start"] <= chapter <= v["chapter_end"]:
+                if v["chapter_start"] is not None and v["chapter_end"] is not None                         and v["chapter_start"] <= chapter <= v["chapter_end"]:
                     current_volume = v["volume_number"]
                     break
         if current_volume is None and volumes:
@@ -62,7 +67,7 @@ async def list_characters_by_volume(project_id: int, chapter: int = None):
         ch = s["chapter_number"]
         name = s["character_name"]
         for v in volumes:
-            if v["chapter_start"] <= ch <= v["chapter_end"]:
+            if v["chapter_start"] is not None and v["chapter_end"] is not None                     and v["chapter_start"] <= ch <= v["chapter_end"]:
                 char_volumes.setdefault(name, set()).add(v["volume_number"])
 
     # 分组
@@ -167,7 +172,7 @@ async def delete_character(project_id: int, name: str):
         await db.commit()
         invalidate_project(project_id)
 
-@router.get("/{project_id}/characters/snapshots", response_model=List[CharacterSnapshotOut])
+@router.get("/{project_id}/character-snapshots", response_model=List[CharacterSnapshotOut])
 async def list_snapshots(project_id: int, chapter: int = None):
     async with get_db_ctx() as db:
         if chapter is not None:

@@ -4,11 +4,11 @@ import logging
 import os
 import time
 from pathlib import Path
-from config import BASE_DIR
+from config import DATABASE_DIR
 
 logger = logging.getLogger(__name__)
 
-SETTINGS_FILE = BASE_DIR / "data" / "settings.json"
+SETTINGS_FILE = DATABASE_DIR / "settings.json"
 
 _cache = {"data": None, "mtime": 0}
 

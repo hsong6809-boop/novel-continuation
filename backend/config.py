@@ -5,9 +5,10 @@ from pathlib import Path
 # 项目根目录
 BASE_DIR = Path(__file__).resolve().parent
 
-# 数据库
-DATABASE_DIR = BASE_DIR / "data"
-DATABASE_DIR.mkdir(exist_ok=True)
+# 数据库（优先使用环境变量，支持打包模式）
+_data_dir = os.environ.get("NOVEL_DATA_DIR")
+DATABASE_DIR = Path(_data_dir) if _data_dir else BASE_DIR / "data"
+DATABASE_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE_URL = f"sqlite+aiosqlite:///{DATABASE_DIR}/novel.db"
 
 # AI 模型配置

@@ -1202,3 +1202,264 @@ novel-continuation/
 
 ================================
 记录人：Hermes Agent (mimo-v2.5-pro)
+
+================================
+
+日期：2026-05-02
+状态：导入流程优化 + 伏笔管理修复 + 主页UI改进
+
+一、导入流程优化（P1-P4 全部完成）
+-----------------------------------
+
+**P1: 文件上传导入 bug 修复**
+- 问题：文件上传模式前端预览用 smartSplit() 拆分，但实际导入走 importFile() 直接发原始文件给后端，后端重新拆分，导致预览和实际导入不一致
+- 修复：ImportPanel.jsx handleImport() 统一走 batchImportChapters()，前端拆分结果直接提交
+
+**P2: 小文件预处理增强**
+- preprocess_service.py：每章截取 2000→3000 字，总上限 30000→50000 字
+- preprocess_service.py：prompt 新增「章节细纲」提取（plot_description + chapter_hook），保存到 chapter_outlines 表
+- preprocess_service.py：max_tokens 8192→12000
+- 小文件预处理现在和大文件一样会生成章纲，之前只有角色/伏笔/时间线
+
+**P3: SSE 实时进度显示**
+- backend/services/large_import_service.py：新增 progress_callback 参数，每处理一块发送进度事件
+- backend/routers/import_chapters.py：新增 /preprocess/stream 和 /large-process/stream 两个 SSE 端点
+- frontend/src/api/client.js：新增 preprocessProjectStream() 和 largeProcessStream() 函数
+- ImportPanel.jsx：预处理 UI 改为显示实时进度（分块进度条 + 当前处理消息）
+
+**P4: 去掉首次导入限制 + 手动重新分析**
+- ImportPanel.jsx：导入后不再检查 current_chapter === 0，始终自动触发预处理
+- ImportPanel.jsx：导入选择区域新增「重新分析已有章节」按钮（已有章节时显示）
+- ImportPanel.jsx：预处理完成区域新增「重新分析」按钮
+
+二、伏笔管理修复（3 项）
+--------------------------
+
+1. **ForeshadowPanel 导入缺失**
+   - 问题：listForeshadowing 和 updateForeshadowing 未导入，伏笔管理面板无法加载数据
+   - 修复：ForeshadowPanel.jsx 补充具名导入
+
+2. **废弃操作失败**
+   - 问题：前端发 status='abandoned'，后端 schema 只允许 active/resolved/dropped
+   - 修复：STATUS_CONFIG 新增 apiStatus 映射（abandoned→dropped），新增 API_STATUS_MAP 反向映射，load() 和 handleStatusChange() 统一走 getApiStatus() 转换
+
+3. **伏笔列表排序 + 去重 + tab 修复**
+   - 去掉多出的「已废弃」tab（dropped 条目从 STATUS_CONFIG 移到 API_STATUS_MAP）
+   - 活跃伏笔：按描述去重（保留最早埋下的），按重要性→章节号排序
+   - 已回收/已废弃：按章节号排序
+
+三、主页 UI 改进
+-----------------
+
+- ProjectList.jsx：功能亮点卡片（大纲规划/智能续写/全程可控）改为始终显示
+- 无项目时：保持原大小（p-5, 图标 w-10, 标题 text-h3）
+- 有项目时：卡片缩小（p-3, 图标 w-7, 标题 text-sm, 描述 text-xs）
+
+四、修改文件清单
+-----------------
+
+**后端（3 个文件）：**
+- backend/routers/import_chapters.py — SSE 端点（preprocess/stream + large-process/stream）
+- backend/services/preprocess_service.py — 截取放宽 + 章纲提取 + max_tokens
+- backend/services/large_import_service.py — progress_callback 进度回调
+
+**前端（4 个文件）：**
+- frontend/src/components/ImportPanel.jsx — P1-P4 全部改动
+- frontend/src/api/client.js — SSE 函数
+- frontend/src/components/ForeshadowPanel.jsx — 导入修复 + 状态映射 + 排序去重
+- frontend/src/pages/ProjectList.jsx — 功能卡片始终显示
+
+================================
+记录人：Hermes Agent (mimo-v2.5-pro)
+
+================================
+
+日期：2026-05-02（续）
+状态：大纲管理修复 + 文档大纲自动提取 + 分卷大纲简化
+
+一、大纲管理 bug 修复
+--------------------------
+
+**分卷大纲 CRUD 函数缺失**
+- 问题：outlines.py 路由调用 create_volume_outline、list_volume_outlines、get_volume_outline、update_volume_outline、delete_volume_outline 五个函数，但 volume_outline_service.py 中只有 generate_next_volume()，全部缺失，导致手动新增分卷报 500 错误
+- 修复：在 volume_outline_service.py 中补全全部 5 个 CRUD 函数，含前端字段映射（name→volume_name, description→summary）、卷号重复校验、项目归属校验
+
+二、伏笔管理修复（3 项）
+--------------------------
+
+1. **ForeshadowPanel 导入缺失**
+   - 问题：listForeshadowing 和 updateForeshadowing 未导入，伏笔面板无法加载数据
+   - 修复：ForeshadowPanel.jsx 补充具名导入
+
+2. **废弃操作失败**
+   - 问题：前端发 status='abandoned'，后端 schema 只允许 active/resolved/dropped
+   - 修复：STATUS_CONFIG 新增 apiStatus 映射（abandoned→dropped），新增 API_STATUS_MAP 反向映射
+
+3. **伏笔列表排序 + 去重 + tab 修复**
+   - 去掉多出的「已废弃」tab
+   - 活跃伏笔：按描述去重（保留最早埋下的），按重要性→章节号排序
+   - 已回收/已废弃：按章节号排序
+
+三、文档大纲自动提取（首次导入）
+----------------------------------
+
+**后端：文档结构解析（preprocess_service.py，新增 ~160 行）**
+- `parse_document_structure()` — 正则解析文档结构
+  - 标记型：识别【总纲】【卷纲】【第X卷】等标记，按标记切分
+  - 隐式型：无标记时，取第一个章节标题之前的内容为大纲
+- `extract_and_save_outlines()` — 保存总纲到 projects.volume_summaries，卷纲到 volume_outlines 表
+
+**后端：大纲提取端点（import_chapters.py）**
+- 新增 `POST /{project_id}/import/extract-outlines` 端点，接收原始文本，调用 extract_and_save_outlines
+
+**前端：导入流程集成（ImportPanel.jsx）**
+- 新增 rawText 状态，粘贴/文件模式均保存原始文本
+- 首次导入（current_chapter === 0）时先调 extractOutlines 提取大纲，再触发预处理
+- 导入面板新增格式提示：要求文档开头包含总纲和卷纲，给出建议格式示例
+
+四、分卷大纲页面简化（VolumeOutlinePanel.jsx）
+------------------------------------------------
+
+**改动前（303 行）：**每卷卡片含编辑模式（9 个字段：卷名/概要/核心事件/情感基调/关键转折/内部节奏/卷末钩子/起始章节/结束章节）+ 展示模式（多行标签）+ 批量生成章纲按钮
+
+**改动后（190 行）：**
+- 每卷一个简单卡片，类似总纲编辑器
+- 展示模式：卷号 + 卷名 + 章节范围 + 概要文本（可折叠）
+- 编辑模式：卷名/章节范围输入 + 一个大 textarea 写卷纲内容
+- 保留「新增分卷」和「AI 生成下一卷」按钮
+- 去掉每卷的批量生成章纲、核心事件、情感基调等细分字段
+
+五、修改文件清单
+-----------------
+
+**后端（3 个文件）：**
+- backend/services/volume_outline_service.py — 补全 CRUD 函数（list/get/create/update/delete）
+- backend/services/preprocess_service.py — 文档结构解析 + 大纲提取保存
+- backend/routers/import_chapters.py — 大纲提取端点
+
+**前端（4 个文件）：**
+- frontend/src/components/ImportPanel.jsx — 提示文字 + rawText + 首次导入大纲提取
+- frontend/src/api/client.js — extractOutlines API
+- frontend/src/components/ForeshadowPanel.jsx — 导入修复 + 状态映射 + 排序去重
+- frontend/src/components/VolumeOutlinePanel.jsx — 全部重写为单框编辑模式
+
+================================
+记录人：Hermes Agent (mimo-v2.5-pro)
+
+日期：2026-05-03
+状态：全面性能优化 + 启动脚本修复
+
+一、前端语法错误修复
+--------------------
+
+**问题：** 启动后前端白屏，控制台报语法错误。
+
+**修复内容：**
+- `frontend/src/api/client.js` — 删除重复的 `generateChapterStream` 函数（出现3次，保留1次）
+- `frontend/src/components/WriteWizard.jsx` — 删除重复的 `rafRef`/`useToast` 声明、重复的 `finally` 块、重复的 `useEffect` 清理函数
+- `frontend/src/components/ChapterOutlinePanel.jsx` — 删除重复的 `generatingCh` 声明
+
+二、后端性能优化（阶段1-4）
+---------------------------
+
+### 阶段1：后端 Bug 修复（零风险）
+
+修复复制粘贴导致的重复数据库操作：
+- `backend/routers/foreshadowing.py` — 3条相同的SELECT只保留1条
+- `backend/routers/outlines.py` — 3个重复return只保留1个，重复 `invalidate_project` 调用合并
+- `backend/routers/import_chapters.py` — 3次重复commit只保留1次
+
+### 阶段2：数据库连接复用（高影响）
+
+- `backend/models/database.py` — 用模块级单例连接替代每次请求新建 `aiosqlite.connect()`
+  - 新增 `_get_shared_connection()` 全局单例，启用 WAL 模式和外键约束
+  - 新增 `close_db()` 清理函数
+- `backend/main.py` — 在 lifespan 中添加 `close_db()` 确保应用退出时关闭连接
+
+### 阶段3：列表接口缓存（高影响）
+
+在已有的 `utils/cache.py`（60s TTL、500条上限）基础上，为6个高频读取接口添加缓存：
+- `backend/utils/cache.py` — 新增 `timeline_key`、`outlines_key`、`chapters_key`、`projects_list_key`
+- `backend/routers/characters.py` — `list_characters` 加缓存
+- `backend/routers/foreshadowing.py` — `list_foreshadowing` 加缓存
+- `backend/routers/timeline.py` — `list_timeline` 加缓存
+- `backend/routers/outlines.py` — `list_outlines` 加缓存
+- `backend/routers/projects.py` — `list_projects` 加缓存（30s TTL），create/update/delete 时调用 `invalidate_all()`
+
+### 阶段4：对话服务缓存（中等影响）
+
+- `backend/services/chat_service.py` — `handle_chat` 中优先从缓存读取 project/characters/foreshadowing，缓存未命中再查数据库
+
+三、前端性能优化（阶段5-7）
+---------------------------
+
+### 阶段5：Layout 设置缓存（高影响）
+
+- `frontend/src/components/Layout.jsx` — `getSettings` 改为只在组件挂载时调用一次（`useEffect([], [])`），监听自定义 `settings-changed` 事件刷新
+- `frontend/src/pages/SettingsPage.jsx` — 保存设置后 `dispatchEvent(new Event('settings-changed'))`
+
+**效果：** 之前每次路由切换（即点击左侧任何菜单）都会触发 `getSettings` 请求，现在只在启动时请求一次。
+
+### 阶段6：标签页状态保留（高影响）
+
+- `frontend/src/pages/ProjectDetail.jsx` — 用 `visitedTabs` Set + `display:none` 替代条件渲染
+  - 已访问过的标签页保持挂载状态，切换时数据不丢失、不重新加载
+  - 9个标签页全部适用：续写向导、导入前文、大纲、角色、风格、伏笔、时间线、设定库、辅助对话
+
+### 阶段7：消除重复 API 调用（中等影响）
+
+- `frontend/src/components/OutlinePanel.jsx` — 将已获取的 `outlines` 作为 prop 传给 `ChapterOutlinePanel`
+- `frontend/src/components/ChapterOutlinePanel.jsx` — 接收 `outlines` prop，仅在 prop 为空时才调用 `listOutlines`
+
+**效果：** 大纲页面之前会发起两次 `listOutlines` 请求（OutlinePanel 一次 + ChapterOutlinePanel 一次），现在只请求一次。
+
+四、启动脚本修复
+----------------
+
+**问题1：** `start.bat` 打开的浏览器页面是空白/报错的前端。
+**原因：** 脚本使用 `curl` 轮询前端就绪状态，在 Windows 上不工作。
+
+**问题2：** 同时弹出两个浏览器窗口。
+**原因：** Vite 配置 `open: true` 会自动打开浏览器，脚本又手动 `start http://localhost:5173`。
+
+**修复：**
+- `start.bat` — 移除 `curl` 轮询和手动打开浏览器，改用 `timeout /t 8 /nobreak` 等待后端启动，前端由 Vite 自动打开
+
+五、修改文件清单
+-----------------
+
+**后端（10 个文件）：**
+- backend/models/database.py — 数据库连接单例
+- backend/main.py — lifespan 添加 close_db
+- backend/utils/cache.py — 新增4个缓存key生成器
+- backend/routers/characters.py — list_characters 缓存
+- backend/routers/foreshadowing.py — 去重 + list 缓存
+- backend/routers/timeline.py — list_timeline 缓存
+- backend/routers/outlines.py — 去重 + list 缓存
+- backend/routers/projects.py — list_projects 缓存 + invalidate_all
+- backend/routers/import_chapters.py — 去重 commit
+- backend/services/chat_service.py — 缓存优先读取
+
+**前端（6 个文件）：**
+- frontend/src/api/client.js — 删除重复函数
+- frontend/src/components/WriteWizard.jsx — 删除重复声明和代码
+- frontend/src/components/ChapterOutlinePanel.jsx — 删除重复声明 + 接收 outlines prop
+- frontend/src/components/OutlinePanel.jsx — 传递 outlines prop
+- frontend/src/components/Layout.jsx — 设置加载改为一次 + 事件监听
+- frontend/src/pages/SettingsPage.jsx — 保存后 dispatch 事件
+- frontend/src/pages/ProjectDetail.jsx — visitedTabs 状态保留
+
+**启动脚本（1 个文件）：**
+- start.bat — 重写启动逻辑
+
+六、验证结果
+------------
+
+- Python 语法检查通过（`py_compile` 全部后端文件）
+- Vite 构建成功（`npm run build` 无错误）
+- 标签页切换瞬间完成，无加载转圈
+- 设置保存后 Header 立即更新
+- 启动脚本只弹出一个浏览器窗口
+
+================================
+记录人：Claude Code (claude-opus-4-6)

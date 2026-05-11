@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  FileText, Save, Wand2, ChevronDown, ChevronRight, Loader2, Shield,
+  FileText, Save, Wand2, ChevronDown, ChevronRight, Loader2, Shield, Plus, Trash2,
 } from 'lucide-react';
 import {
   listOutlines, getOutline, updateOutline, generateOutline,
-  listVolumeOutlines, batchGenerateOutlines,
+  listVolumeOutlines, batchGenerateOutlines, generateNextOutlines, deleteOutline,
 } from '../api/client';
 import { useToast } from './ui/Toast';
 
@@ -23,16 +23,17 @@ function SourceBadge({ source }) {
   );
 }
 
-export default function ChapterOutlinePanel({ project, focusChapter }) {
+export default function ChapterOutlinePanel({ project, focusChapter, outlines: propOutlines, onOutlinesChange }) {
   const [volumes, setVolumes] = useState([]);
-  const [outlines, setOutlines] = useState([]);
+  const [outlines, setOutlines] = useState(propOutlines || []);
   const [expanded, setExpanded] = useState(null);
   const [editForm, setEditForm] = useState(null);
-  const [generating, setGenerating] = useState(false);
-  const [batchGenerating, setBatchGenerating] = useState(null);
+  const [generatingCh, setGeneratingCh] = useState(null);
+  const [batchGenerating, setBatchGenerating] = useState(false);
   const [error, setError] = useState(null);
   const [selectedVolumeId, setSelectedVolumeId] = useState(null);
   const [batchInstructions, setBatchInstructions] = useState('');
+  const [nextCount, setNextCount] = useState(5);
   const focusRef = useRef(null);
   const userTriggeredRef = useRef(false);
   const toast = useToast();
@@ -56,12 +57,12 @@ export default function ChapterOutlinePanel({ project, focusChapter }) {
 
   async function loadData() {
     try {
-      const [vols, outs] = await Promise.all([
-        listVolumeOutlines(project.id),
-        listOutlines(project.id),
-      ]);
+      const vols = await listVolumeOutlines(project.id);
       setVolumes(vols);
+      // 始终从 API 刷新章纲列表，确保生成后能显示最新数据
+      const outs = await listOutlines(project.id);
       setOutlines(outs);
+      onOutlinesChange?.(outs);
       if (vols.length > 0 && !selectedVolumeId) {
         setSelectedVolumeId(vols[0].id);
       }
@@ -70,7 +71,6 @@ export default function ChapterOutlinePanel({ project, focusChapter }) {
     }
   }
 
-  // 计算每个卷的缺失章纲数
   function getMissingCount(vol) {
     if (!vol || !vol.chapter_start || !vol.chapter_end) return 0;
     const existing = new Set(outlines.map(o => o.chapter_number));
@@ -107,22 +107,25 @@ export default function ChapterOutlinePanel({ project, focusChapter }) {
     setExpanded(ch);
     try {
       const d = await getOutline(project.id, ch);
+      const o = d.outline || {};
       setEditForm({
-        title: d.outline?.title || '',
-        core_objective: d.outline?.core_objective || '',
-        hooks: d.outline?.hooks || '',
+        title: o.title || '',
+        core_objective: o.core_objective || '',
+        hooks: o.hooks || '',
+        info_delivery: o.info_delivery || '',
+        character_development: o.character_development || '',
+        setup_for_future: o.setup_for_future || '',
       });
     } catch { setEditForm(null); }
   }
 
   async function handleGenerate(ch) {
-    // 如果已有章纲，确认覆盖
     const existing = outlines.find(o => o.chapter_number === ch);
     if (existing) {
       const src = SOURCE_LABELS[existing.source]?.text || '未知';
       if (!await toast.confirm(`该章纲来源为「${src}」，重新生成将覆盖，确定？`)) return;
     }
-    setGenerating(true);
+    setGeneratingCh(ch);
     try {
       await generateOutline(project.id, ch, {});
       await loadData();
@@ -130,7 +133,25 @@ export default function ChapterOutlinePanel({ project, focusChapter }) {
     } catch (e) {
       toast.error('生成失败: ' + (e.response?.data?.detail || e.message));
     } finally {
-      setGenerating(false);
+      setGeneratingCh(null);
+    }
+  }
+
+  async function handleGenerateNext() {
+    if (nextCount < 1 || nextCount > 50) {
+      toast.warning('章节数量需在 1~50 之间');
+      return;
+    }
+    setBatchGenerating(true);
+    setError(null);
+    try {
+      const res = await generateNextOutlines(project.id, nextCount, batchInstructions ? { custom_instructions: batchInstructions } : null);
+      await loadData();
+      toast.success(`已生成第 ${res.start_chapter} ~ 第 ${res.end_chapter} 章的章纲（共 ${res.count} 章）`);
+    } catch (e) {
+      setError('生成失败: ' + (e.response?.data?.detail || e.message));
+    } finally {
+      setBatchGenerating(false);
     }
   }
 
@@ -140,7 +161,7 @@ export default function ChapterOutlinePanel({ project, focusChapter }) {
       toast.warning('本卷章纲已完整，无需生成');
       return;
     }
-    setBatchGenerating(volumeId);
+    setBatchGenerating(true);
     setError(null);
     try {
       const res = await batchGenerateOutlines(project.id, volumeId, batchInstructions ? { custom_instructions: batchInstructions } : null);
@@ -151,7 +172,7 @@ export default function ChapterOutlinePanel({ project, focusChapter }) {
     } catch (e) {
       setError('批量生成失败: ' + (e.response?.data?.detail || e.message));
     } finally {
-      setBatchGenerating(null);
+      setBatchGenerating(false);
     }
   }
 
@@ -161,10 +182,25 @@ export default function ChapterOutlinePanel({ project, focusChapter }) {
         title: editForm.title,
         core_objective: editForm.core_objective,
         hooks: editForm.hooks,
+        info_delivery: editForm.info_delivery,
+        character_development: editForm.character_development,
+        setup_for_future: editForm.setup_for_future,
       });
       await loadData();
       toast.success('保存成功');
     } catch { toast.error('保存失败'); }
+  }
+
+  async function handleDelete(ch) {
+    if (!await toast.confirm(`确定删除第${ch}章的章纲？`)) return;
+    try {
+      await deleteOutline(project.id, ch);
+      await loadData();
+      if (expanded === ch) { setExpanded(null); setEditForm(null); }
+      toast.success('已删除');
+    } catch (e) {
+      toast.error('删除失败: ' + (e.response?.data?.detail || e.message));
+    }
   }
 
   const grouped = getOutlinesByVolume();
@@ -178,52 +214,71 @@ export default function ChapterOutlinePanel({ project, focusChapter }) {
     <div className="space-y-4">
       {error && <div className="text-sm text-red-400 bg-red-500/[0.08] border border-red-500/20 rounded-lg px-3 py-2">{error}</div>}
 
-      {/* 分卷选择器 + 批量生成 */}
-      {volumes.length > 0 && (
-        <div className="bg-surface-1 border border-border-subtle rounded-lg p-4 space-y-3">
-          <div className="flex items-center gap-3">
-            <label className="text-sm text-ink-500 shrink-0">选择分卷：</label>
+      {/* 生成后续章纲 */}
+      <div className="bg-surface-1 border border-border-subtle rounded-lg p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <label className="text-sm text-ink-500 shrink-0">生成后续</label>
+          <input
+            type="number"
+            min={1}
+            max={50}
+            value={nextCount}
+            onChange={e => setNextCount(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
+            className="w-20 input-surface border border-border-default rounded-lg px-3 py-2 text-sm text-center focus:ring-1 focus:ring-inkblue-500/40"
+          />
+          <label className="text-sm text-ink-500 shrink-0">章章纲</label>
+          <input
+            value={batchInstructions}
+            onChange={e => setBatchInstructions(e.target.value)}
+            placeholder="自定义指令（可选）：如本段重点铺设世界观..."
+            className="flex-1 input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-inkblue-500/40"
+          />
+          <button
+            onClick={handleGenerateNext}
+            disabled={batchGenerating}
+            className="flex items-center gap-1.5 px-4 py-2 bg-inkblue-500 hover:bg-purple-500 disabled:opacity-40 rounded-lg text-sm transition shrink-0 shadow-lg shadow-purple-600/15"
+          >
+            {batchGenerating
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <Plus className="w-3.5 h-3.5" />}
+            生成
+          </button>
+        </div>
+
+        {/* 按卷生成缺失章纲（保留原有功能） */}
+        {volumes.length > 0 && selectedVolume && selectedMissing > 0 && (
+          <div className="flex items-center gap-3 pt-2 border-t border-border-subtle">
+            <span className="text-xs text-ink-400">或按卷补全：</span>
             <select
               value={selectedVolumeId || ''}
               onChange={e => setSelectedVolumeId(Number(e.target.value) || null)}
-              className="flex-1 input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-inkblue-500/40"
+              className="flex-1 input-surface border border-border-default rounded-lg px-3 py-1.5 text-xs focus:ring-1 focus:ring-inkblue-500/40"
             >
               {volumes.map(v => (
                 <option key={v.id} value={v.id}>
-                  V{v.volume_number} {v.volume_name || '未命名卷'} {v.chapter_start && v.chapter_end ? `(第${v.chapter_start}-${v.chapter_end}章)` : ''}
+                  V{v.volume_number} {v.volume_name || '未命名卷'} ({getMissingCount(v)}章缺失)
                 </option>
               ))}
             </select>
+            <button
+              onClick={() => handleBatchGenerate(selectedVolumeId)}
+              disabled={batchGenerating}
+              className="flex items-center gap-1 px-3 py-1.5 bg-inkblue-500/80 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-xs transition shadow-lg shadow-purple-600/10"
+            >
+              {batchGenerating
+                ? <Loader2 className="w-3 h-3 animate-spin" />
+                : <Wand2 className="w-3 h-3" />}
+              补全缺失 ({selectedMissing})
+            </button>
           </div>
-          {selectedVolume && (
-            <div className="flex items-center gap-3">
-              <input
-                value={batchInstructions}
-                onChange={e => setBatchInstructions(e.target.value)}
-                placeholder="自定义指令（可选）：如本卷重点铺设世界观..."
-                className="flex-1 input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-inkblue-500/40"
-              />
-              <button
-                onClick={() => handleBatchGenerate(selectedVolumeId)}
-                disabled={batchGenerating === selectedVolumeId || selectedMissing === 0}
-                title={selectedMissing === 0 ? '本卷章纲已完整' : ''}
-                className="flex items-center gap-1.5 px-4 py-2 bg-inkblue-500 hover:bg-purple-500 disabled:opacity-40 rounded-lg text-sm transition shrink-0 shadow-lg shadow-purple-600/15"
-              >
-                {batchGenerating === selectedVolumeId
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <Wand2 className="w-3.5 h-3.5" />}
-                生成缺失章纲{selectedMissing > 0 ? ` (${selectedMissing}章)` : ''}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
       {outlines.length === 0 && (
         <div className="text-center py-8 text-ink-400">
           <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p>暂无章纲</p>
-          <p className="text-sm mt-1">导入前文后自动生成，或在分卷大纲中批量生成</p>
+          <p className="text-sm mt-1">导入前文后自动生成，或点击上方「生成」按钮</p>
         </div>
       )}
 
@@ -246,22 +301,13 @@ export default function ChapterOutlinePanel({ project, focusChapter }) {
                   <span className="text-sm text-ink-500">未分卷章节 ({group.chapters.length} 章)</span>
                 )}
               </div>
-              {group.volume && volMissing > 0 && (
-                <button onClick={() => handleBatchGenerate(group.volume.id)} disabled={batchGenerating === group.volume.id}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-inkblue-500/80 hover:bg-purple-500 disabled:opacity-50 rounded-lg text-xs transition shadow-lg shadow-purple-600/10">
-                  {batchGenerating === group.volume.id
-                    ? <Loader2 className="w-3 h-3 animate-spin" />
-                    : <Wand2 className="w-3 h-3" />}
-                  生成缺失 ({volMissing})
-                </button>
-              )}
             </div>
 
             {/* 章纲列表 */}
             {group.chapters.map(o => (
               <div key={o.chapter_number} ref={focusChapter === o.chapter_number ? focusRef : undefined}>
                 <div
-                  className={`grid grid-cols-[80px_100px_1fr_1fr_60px_50px] gap-2 px-4 py-3 cursor-pointer hover:bg-surface-1 transition border-b border-border-subtle/50 ${
+                  className={`grid grid-cols-[80px_100px_1fr_1fr_60px_70px] gap-2 px-4 py-3 cursor-pointer hover:bg-surface-1 transition border-b border-border-subtle/50 ${
                     expanded === o.chapter_number ? 'bg-surface-1' : ''
                   } ${focusChapter === o.chapter_number ? 'ring-1 ring-jade-500/30 bg-green-500/[0.03]' : ''}`}
                   onClick={() => toggleExpand(o.chapter_number)}
@@ -276,24 +322,37 @@ export default function ChapterOutlinePanel({ project, focusChapter }) {
                   <div className="text-sm text-ink-500 truncate">{o.core_objective || '—'}</div>
                   <div className="text-sm text-ink-400 truncate">{o.hooks || '—'}</div>
                   <div><SourceBadge source={o.source} /></div>
-                  <div className="flex justify-end">
+                  <div className="flex justify-end gap-1">
                     <button onClick={(e) => { e.stopPropagation(); handleGenerate(o.chapter_number); }}
-                      disabled={generating}
+                      disabled={generatingCh !== null}
                       className="p-1.5 text-gold-600 hover:bg-surface-3 rounded transition" title="AI 生成章纲">
-                      {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                      {generatingCh === o.chapter_number ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDelete(o.chapter_number); }}
+                      className="p-1.5 text-red-400 hover:bg-red-500/10 rounded transition" title="删除章纲">
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
-                {/* 展开编辑区 */}
+                {/* 展开编辑区 — 7 字段 */}
                 {expanded === o.chapter_number && editForm && (
                   <div className="border-b border-border-subtle px-5 py-4 space-y-4 bg-black/[0.015] animate-fade-in">
-                    <div>
-                      <label className="text-xs text-ink-400 block mb-1">标题</label>
-                      <input value={editForm.title}
-                        onChange={e => setEditForm({ ...editForm, title: e.target.value })}
-                        placeholder="章节标题"
-                        className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40" />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs text-ink-400 block mb-1">标题</label>
+                        <input value={editForm.title}
+                          onChange={e => setEditForm({ ...editForm, title: e.target.value })}
+                          placeholder="章节标题"
+                          className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-ink-400 block mb-1">章末钩子</label>
+                        <input value={editForm.hooks}
+                          onChange={e => setEditForm({ ...editForm, hooks: e.target.value })}
+                          placeholder="本章结尾的悬念或转折"
+                          className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40" />
+                      </div>
                     </div>
                     <div>
                       <label className="text-xs text-ink-400 block mb-1">情节描述</label>
@@ -303,11 +362,29 @@ export default function ChapterOutlinePanel({ project, focusChapter }) {
                         rows={3}
                         className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 resize-y" />
                     </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs text-ink-400 block mb-1">信息传递</label>
+                        <textarea value={editForm.info_delivery}
+                          onChange={e => setEditForm({ ...editForm, info_delivery: e.target.value })}
+                          placeholder="本章要传递给读者的关键信息..."
+                          rows={2}
+                          className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 resize-y" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-ink-400 block mb-1">角色变化</label>
+                        <textarea value={editForm.character_development}
+                          onChange={e => setEditForm({ ...editForm, character_development: e.target.value })}
+                          placeholder="本章角色变化（心态/关系/实力）..."
+                          rows={2}
+                          className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 resize-y" />
+                      </div>
+                    </div>
                     <div>
-                      <label className="text-xs text-ink-400 block mb-1">章末钩子</label>
-                      <input value={editForm.hooks}
-                        onChange={e => setEditForm({ ...editForm, hooks: e.target.value })}
-                        placeholder="本章结尾的悬念或转折"
+                      <label className="text-xs text-ink-400 block mb-1">后续铺垫</label>
+                      <input value={editForm.setup_for_future}
+                        onChange={e => setEditForm({ ...editForm, setup_for_future: e.target.value })}
+                        placeholder="本章为后续章节做的铺垫或埋的伏笔（可为空）"
                         className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40" />
                     </div>
                     <div className="flex justify-end gap-2">

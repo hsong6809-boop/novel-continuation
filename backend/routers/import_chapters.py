@@ -1,11 +1,15 @@
 """章节导入路由"""
 import re
+import json
+import asyncio
 from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from models.database import get_db_ctx
 from utils.text_utils import count_chinese_words
 from utils.chinese_num import chinese_to_arabic
+from utils.cache import invalidate_project, invalidate_all
 
 router = APIRouter(prefix="/api/projects", tags=["import"])
 
@@ -25,12 +29,12 @@ def split_text_to_chapters(text: str) -> List[dict]:
     """智能拆分文本为章节，支持多种格式"""
     # 常见章节标题模式
     patterns = [
-        r'第[一二三四五六七八九十百千\d]+章\s*[：:\s]*(.+)?',  # 第X章 标题
-        r'第[一二三四五六七八九十百千\d]+节\s*[：:\s]*(.+)?',  # 第X节
+        r'第[一二三四五六七八九十百千万\d]+章\s*[：:\s]*(.+)?',  # 第X章 标题
+        r'第[一二三四五六七八九十百千万\d]+节\s*[：:\s]*(.+)?',  # 第X节
         r'Chapter\s+(\d+)\s*[：:\s]*(.+)?',                    # Chapter X
         r'CHAPTER\s+(\d+)\s*[：:\s]*(.+)?',                    # CHAPTER X
         r'^\d+[\.、]\s*(.+)?',                                   # 1. 标题 或 1、标题
-        r'^【第[一二三四五六七八九十百千\d]+章】\s*(.+)?',       # 【第X章】
+        r'^【第[一二三四五六七八九十百千万\d]+章】\s*(.+)?',       # 【第X章】
     ]
 
     combined = '|'.join(f'({p})' for p in patterns)
@@ -49,7 +53,7 @@ def split_text_to_chapters(text: str) -> List[dict]:
         # 提取章节号：优先匹配阿拉伯数字，再匹配中文数字
         ch_num = None
         # 尝试从 "第X章/节" 中提取中文/阿拉伯数字
-        cn_match = re.search(r'第([一二三四五六七八九十百千零\d]+)[章节]', header)
+        cn_match = re.search(r'第([一二三四五六七八九十百千万零\d]+)[章节]', header)
         if cn_match:
             ch_num = chinese_to_arabic(cn_match.group(1))
         if ch_num is None:
@@ -61,12 +65,12 @@ def split_text_to_chapters(text: str) -> List[dict]:
             ch_num = (chapters[-1]["chapter_number"] + 1) if chapters else i + 1
 
         # 提取标题（去掉章节号后的部分）
-        title = re.sub(r'^第[一二三四五六七八九十百千\d]+章\s*[：:\s]*', '', header)
-        title = re.sub(r'^第[一二三四五六七八九十百千\d]+节\s*[：:\s]*', '', title)
+        title = re.sub(r'^第[一二三四五六七八九十百千万\d]+章\s*[：:\s]*', '', header)
+        title = re.sub(r'^第[一二三四五六七八九十百千万\d]+节\s*[：:\s]*', '', title)
         title = re.sub(r'^Chapter\s+\d+\s*[：:\s]*', '', title, flags=re.IGNORECASE)
         title = re.sub(r'^CHAPTER\s+\d+\s*[：:\s]*', '', title, flags=re.IGNORECASE)
         title = re.sub(r'^\d+[\.、]\s*', '', title)
-        title = re.sub(r'^【第[一二三四五六七八九十百千\d]+章】\s*', '', title)
+        title = re.sub(r'^【第[一二三四五六七八九十百千万\d]+章】\s*', '', title)
         title = title.strip() or None
 
         # 内容 = 当前标题到下一个标题之间
@@ -132,6 +136,8 @@ async def batch_import_chapters(project_id: int, data: BatchImportRequest):
             (max_chapter, total_words, project_id),
         )
         await db.commit()
+        invalidate_project(project_id)
+        invalidate_all()
 
         return {
             "imported": imported,
@@ -199,3 +205,64 @@ async def large_process_import(project_id: int):
     if "error" in result:
         raise HTTPException(500, result["error"])
     return result
+
+
+class OutlineExtractRequest(BaseModel):
+    raw_text: str = Field(..., min_length=1)
+
+
+@router.post("/{project_id}/import/extract-outlines")
+async def extract_outlines(project_id: int, data: OutlineExtractRequest):
+    """从原始文档文本中提取总纲和卷纲并保存"""
+    from services.preprocess_service import extract_and_save_outlines
+    result = await extract_and_save_outlines(project_id, data.raw_text)
+    return result
+
+
+@router.post("/{project_id}/preprocess/stream")
+async def preprocess_stream(project_id: int):
+    """SSE 版预处理（小文件）：实时返回进度"""
+    from services.preprocess_service import preprocess_imported_chapters
+
+    async def event_generator():
+        yield f"data: {json.dumps({'type': 'start', 'message': '正在分析章节内容...'}, ensure_ascii=False)}\n\n"
+        result = await preprocess_imported_chapters(project_id)
+        if "error" in result:
+            yield f"data: {json.dumps({'type': 'error', 'message': result['error']}, ensure_ascii=False)}\n\n"
+        else:
+            yield f"data: {json.dumps({'type': 'done', 'result': result}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.post("/{project_id}/import/large-process/stream")
+async def large_process_stream(project_id: int):
+    """SSE 版大文件分块处理：实时返回每块进度"""
+    from services.large_import_service import large_import_and_process
+
+    queue = asyncio.Queue()
+
+    async def progress_callback(data):
+        await queue.put(data)
+
+    async def event_generator():
+        # 启动后台处理任务
+        task = asyncio.create_task(large_import_and_process(project_id, progress_callback))
+        try:
+            while True:
+                try:
+                    data = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                    if data.get("type") in ("done", "error"):
+                        break
+                except asyncio.TimeoutError:
+                    if task.done():
+                        break
+                    yield ": keepalive\n\n"
+        except Exception:
+            task.cancel()
+            raise
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

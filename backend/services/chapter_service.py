@@ -2,6 +2,7 @@
 import logging
 from models.database import get_db_ctx
 from utils.text_utils import count_chinese_words
+from utils.cache import invalidate_project
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +52,18 @@ async def _archive_old_version(db, project_id: int, chapter: int):
     )
 
 
+# 单章最大内容长度（10MB，防止意外超大文本提交）
+MAX_CHAPTER_LENGTH = 10 * 1024 * 1024
+
+
 async def save_chapter(project_id: int, chapter: int, content: str, title: str = None) -> dict:
     """保存章节内容并更新项目统计（自动归档旧版本）"""
     if not content:
         raise ValueError("章节内容不能为空")
     if chapter < 1:
         raise ValueError("章节号必须大于0")
+    if len(content) > MAX_CHAPTER_LENGTH:
+        raise ValueError(f"章节内容过长（{len(content)} 字符，上限 {MAX_CHAPTER_LENGTH} 字符）")
 
     word_count = count_chinese_words(content)
 
@@ -96,6 +103,7 @@ async def save_chapter(project_id: int, chapter: int, content: str, title: str =
         await update_project_progress(db, project_id)
         await db.commit()
 
+    invalidate_project(project_id)
     return {
         "chapter_number": chapter,
         "title": title,
@@ -142,6 +150,7 @@ async def restore_chapter_version(project_id: int, chapter: int, version_id: int
         await update_project_progress(db, project_id)
         await db.commit()
 
+        invalidate_project(project_id)
         return {
             "chapter_number": chapter,
             "title": title,

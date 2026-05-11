@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from models.database import get_db_ctx
 from models.schemas import StyleProfileOut, StyleParamsUpdate
 from ._common import _filter_fields, STYLE_FIELDS
+from utils.cache import invalidate_project
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ async def update_style_params(project_id: int, data: StyleParamsUpdate):
             f"UPDATE style_profiles SET {set_clause} WHERE project_id=?", values
         )
         await db.commit()
+        invalidate_project(project_id)
         cursor = await db.execute(
             "SELECT * FROM style_profiles WHERE project_id=?", (project_id,)
         )
@@ -90,6 +92,7 @@ async def analyze_style(project_id: int):
             (analysis, project_id),
         )
         await db.commit()
+        invalidate_project(project_id)
         cursor = await db.execute(
             "SELECT * FROM style_profiles WHERE project_id=?", (project_id,)
         )

@@ -1,0 +1,298 @@
+==============================================================================
+BACKEND SERVICES & UTILS AUDIT REPORT
+==============================================================================
+Project: novel-continuation-main/backend
+Date: 2026-05-03
+Files audited: 10 services + 7 utils + database.py
+
+==============================================================================
+CRITICAL SEVERITY
+==============================================================================
+
+[C1] Stream retry produces DUPLICATE content
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/llm_client.py
+  Lines: 197-211
+  Issue: chat_completion_stream() is an async generator. The retry loop at line
+         201 re-invokes do_request() on failure, which starts a NEW stream from
+         the beginning. Any chunks already yielded to the caller (line 202:
+         "yield text") are NOT un-done. The caller accumulates these into
+         full_text (continuation_service.py:90), resulting in DOUBLED content
+         on retry.
+  Impact: Generated chapters may contain the first half duplicated on network
+          glitches. Silent data corruption.
+  Fix:   Buffer all chunks in the generator; only yield after stream completes
+         successfully. On retry, don't yield partial results:
+
+         async def do_request():
+             ...
+         collected = []
+         for attempt in range(MAX_RETRIES + 1):
+             try:
+                 async for text in do_request():
+                     collected.append(text)
+                 for t in collected:
+                     yield t
+                 return
+             except ...:
+                 collected.clear()  # discard partial
+                 if attempt < MAX_RETRIES:
+                     await asyncio.sleep(...)
+                 else:
+                     raise
+
+[C2] get_overall_outline() crashes on non-JSON volume_summaries
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/overall_outline_service.py
+  Line: 134
+  Issue: `json.loads(raw)` is called on volume_summaries, but
+         preprocess_service.py:extract_and_save_outlines() (line 139) stores
+         PLAIN TEXT into volume_summaries, not JSON. When
+         get_overall_outline() reads data written by the import flow, it raises
+         json.JSONDecodeError, crashing the API endpoint.
+  Impact: API 500 error after importing documents with overall outlines.
+  Fix:   Wrap in try/except and return raw text as fallback:
+
+         if raw:
+             try:
+                 return json.loads(raw)
+             except (json.JSONDecodeError, ValueError):
+                 return {"raw_text": raw}
+         return {}
+
+==============================================================================
+HIGH SEVERITY
+==============================================================================
+
+[H1] MISSING CACHE INVALIDATION after all database writes (systemic)
+  Files affected:
+    - meta_service.py (lines 96-194)         - writes snapshots, foreshadowing, timeline, settings
+    - outline_service.py (lines 130-141)     - writes chapter_outlines
+    - chapter_service.py (lines 74-97)       - writes chapters
+    - preprocess_service.py (lines 292-402)  - writes characters, foreshadowings, timeline, outlines, settings
+    - large_import_service.py (lines 170-256)- writes all metadata
+    - style_service.py (lines 57-77)         - writes style_baselines
+    - self_review_service.py (lines 122-127) - updates chapters
+    - overall_outline_service.py (lines 113-118) - updates projects
+    - volume_outline_service.py (lines 43-141)   - writes volume_outlines
+  Issue: context_service.py caches project info, characters, and foreshadowing
+         with 60-second TTL (cache.py). NONE of the write services call
+         invalidate_project() after mutations. Stale data persists for up to
+         60 seconds, causing:
+         - AI generation using outdated character/foreshadowing data
+         - UI showing stale project info after edits
+         - Race between preview cache and actual DB state
+  Fix:   Add `from utils.cache import invalidate_project` and call
+         `invalidate_project(project_id)` after every db.commit() in all
+         write services.
+
+[H2] preprocess_service.py uses text.index() instead of regex offset
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/preprocess_service.py
+  Lines: 70, 88, 103, 110
+  Issue: After regex matching within a substring (text[start:end]), the code
+         uses text.index(ch_match.group(), start) to find the absolute
+         position. If the matched text appears multiple times, index() returns
+         the FIRST occurrence after start, which may NOT be the actual match
+         position. This can cause incorrect outline/chapter text splitting.
+  Example: If chapter title "第一章 开端" appears in both the outline and
+           the chapter body, index() picks the wrong one.
+  Fix:   Use regex offset directly:
+         Line 70: ch_abs = start + ch_match.start()
+         Line 88: ch_abs = start + ch_match.start()
+         Line 103: ch_pos = first_ch.start()  (since searching full text)
+         Line 110: ch_pos = first_ch.start()
+
+[H3] HTTP client singleton ignores different timeout requests
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/llm_client.py
+  Lines: 16-21
+  Issue: get_http_client() creates a singleton on first call. Subsequent calls
+         with different timeout values are IGNORED because the client already
+         exists. Streaming requests need 300s read timeout (line 113) but get
+         120s if a non-streaming request was made first.
+  Impact: Streaming LLM calls may timeout prematurely on long generations.
+  Fix:   Either:
+         a) Store timeout on the client and check if it changed, OR
+         b) Don't use a singleton for timeout-sensitive requests, OR
+         c) Create the client with the maximum timeout (300s) always.
+
+[H4] Foreshadowing resolution uses loose substring matching
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/meta_service.py
+  Line: 146
+  Issue: `desc in af["description"] or af["description"] in desc` matches
+         partial substrings. A resolved foreshadowing "他在寻找" would match
+         and INCORRECTLY mark "他在寻找失踪的父亲" as resolved.
+  Fix:   Use exact match only, or implement fuzzy matching with a similarity
+         threshold (e.g., Levenshtein ratio > 0.8):
+         if af["description"] == desc:
+
+==============================================================================
+MEDIUM SEVERITY
+==============================================================================
+
+[M1] _check_outline returns aiosqlite.Row, not dict
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/continuation_service.py
+  Line: 42
+  Issue: `return await cursor.fetchone()` returns an aiosqlite.Row. Downstream,
+         _get_temperature() (line 25-30) handles this with isinstance check +
+         dict() fallback, but it's fragile. If any other code assumes dict
+         (e.g., .get() works on Row but .items() may not), it will break.
+  Fix:   `row = await cursor.fetchone(); return dict(row) if row else None`
+
+[M2] chat_service stores LLM errors in chat history
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/chat_service.py
+  Lines: 164-177
+  Issue: When LLM call fails, the error message (e.g., "配置错误：...") is
+         saved as the assistant reply in chat_history (line 177). Future
+         conversations will include these error messages as context,
+         confusing the LLM.
+  Fix:   Only save to chat_history if reply was successful:
+         if not reply.startswith("⚠️"):
+             # save to history
+
+[M3] batch outline chapter_number type mismatch
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/outline_service.py
+  Line: 308-309
+  Issue: `ch = o.get("chapter_number", 0)` — the AI may return
+         chapter_number as a string ("1") instead of int (1). The comparison
+         `ch not in missing_numbers` would be True (string != int), silently
+         skipping valid outlines.
+  Fix:   `ch = int(o.get("chapter_number", 0))` with try/except ValueError.
+
+[M4] meta_service.py snapshots may be list instead of dict
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/meta_service.py
+  Line: 98-100
+  Issue: `snapshots = data.get("character_snapshots", {})` then
+         `for char_name, state in snapshots.items()`. If the AI returns
+         character_snapshots as a list of {"name":..., "state":...} objects
+         instead of a dict, .items() will raise AttributeError.
+  Fix:   Validate type: `if isinstance(snapshots, dict): ...`
+         or `if isinstance(snapshots, list): snapshots = {s["name"]: s["state"] for s in snapshots}`
+
+[M5] json_parser Strategy 2 fragile with complex LLM output
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/utils/json_parser.py
+  Lines: 27-28
+  Issue: `text.find('{')` and `text.rfind('}')` can span multiple JSON objects
+         or include non-JSON braces. If the LLM output has explanation text
+         with JSON examples before the actual output, Strategy 2 extracts a
+         broken string.
+  Fix:   After Strategy 2 fails, try parsing each top-level {...} block
+         individually, or use a JSON stream parser.
+
+[M6] preprocess_service.py KeyError on missing timeline chapter_number
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/preprocess_service.py
+  Line: 368
+  Issue: `t["chapter_number"]` will raise KeyError if the AI doesn't include
+         chapter_number in a timeline entry. Other fields use .get() but this
+         one uses direct dict access.
+  Fix:   Use `t.get("chapter_number", 0)` and add `if not ch_num: continue`.
+
+[M7] single chapter outline missing volume_id
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/outline_service.py
+  Lines: 135-141
+  Issue: generate_outline_for_chapter() INSERT doesn't set volume_id, while
+         batch_generate_outlines_for_volume() does (line 313). Single-generated
+         outlines won't be linked to their volume.
+  Fix:   Look up the volume_id from volume_outlines before inserting:
+         cursor = await db.execute(
+             "SELECT id FROM volume_outlines WHERE project_id=? AND chapter_start<=? AND chapter_end>=?",
+             (project_id, chapter, chapter))
+         vol_row = await cursor.fetchone()
+         volume_id = vol_row["id"] if vol_row else None
+         Then include volume_id in the INSERT.
+
+[M8] preprocess_service.py stores plain text in volume_summaries
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/preprocess_service.py
+  Line: 139
+  Issue: extract_and_save_outlines() stores parsed['overall_outline'] (plain
+         text) into projects.volume_summaries. But overall_outline_service.py
+         and other places expect JSON. See C2 above.
+  Fix:   Store as JSON: `json.dumps({"raw_text": parsed['overall_outline']})`
+         OR store in a separate column.
+
+==============================================================================
+LOW SEVERITY
+==============================================================================
+
+[L1] context_service.py opens extra DB connection for style ref chapters
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/context_service.py
+  Lines: 296-304
+  Issue: _build_write_preview_inner() opens a separate get_db_ctx() for style
+         reference chapters, while _load_all_context() already had a
+         connection. Extra connection overhead.
+  Fix:   Pass style_ref_nums to _load_all_context and load there, or return
+         the db connection from _load_all_context for reuse.
+
+[L2] settings_library_service.py wasteful query on conflict
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/settings_library_service.py
+  Line: 57
+  Issue: When ON CONFLICT UPDATE triggers, lastrowid=0. The code then calls
+         get_setting(project_id, 0) which queries id=0 (never exists),
+         then falls back to a second query by unique key. Two wasted queries.
+  Fix:   Check lastrowid == 0 directly and skip to the fallback query.
+
+[L3] chat_service.py subquery without alias
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/chat_service.py
+  Line: 58
+  Issue: Subquery lacks alias. While SQLite accepts this, it's not
+         standard SQL and could break with other databases.
+  Fix:   Add alias: "... FROM (SELECT ... LIMIT 20) AS recent ORDER BY ..."
+
+[L4] continuation_service.py chapter 1 snapshot query
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/context_service.py
+  Line: 196
+  Issue: When chapter=1, query uses chapter_number<=0, returning no snapshots.
+         This is likely intentional but should be documented or guarded.
+  Fix:   Add guard: if chapter <= 1, skip snapshot query or use chapter=1.
+
+[L5] cache.py has no thread safety
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/utils/cache.py
+  Line: 10
+  Issue: Module-level _cache dict is not thread-safe. Fine for single-threaded
+         async, but would break if the app ever uses threads.
+  Fix:   Not urgent for async, but document the assumption.
+
+[L6] style_service.py depends on word_count column accuracy
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/style_service.py
+  Line: 29
+  Issue: `word_count > 200` filter. If chapters were imported without
+         word_count calculation, they'd be excluded from style analysis.
+  Fix:   Consider using `length(content) > 200` as a fallback.
+
+[L7] llm_client.py extract_content returns empty string on error
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/llm_client.py
+  Lines: 157-162
+  Issue: If the LLM response has an unexpected structure, extract_content
+         returns "" silently. Callers then check `if not content` but lose
+         diagnostic info about what the response looked like.
+  Fix:   Log a warning when falling back to empty string.
+
+[L8] logger.py creates log dir unconditionally at import
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/utils/logger.py
+  Lines: 7-8
+  Issue: `log_dir.mkdir(exist_ok=True)` runs at import time, which could fail
+         in read-only environments or testing contexts.
+  Fix:   Lazy initialization or wrap in try/except.
+
+[L9] preprocess_service.py text.index() in implicit mode
+  File: /mnt/c/Users/24345/Desktop/novel-continuation-main/backend/services/preprocess_service.py
+  Lines: 103, 110
+  Issue: Same text.index() fragility as H2. In the implicit (non-marked)
+         document mode, if the first chapter title text appears multiple times,
+         the split position is wrong.
+  Fix:   Use first_ch.start() directly since we searched the full text.
+
+==============================================================================
+SUMMARY
+==============================================================================
+
+Total issues found: 22
+  Critical: 2  (stream duplicate content, JSON parse crash)
+  High:     4  (stale cache, index() bug, timeout ignored, loose matching)
+  Medium:   8  (type issues, error storage, missing validation)
+  Low:      8  (efficiency, style, robustness)
+
+Top 3 most impactful issues to fix first:
+  1. C1 - Stream retry duplicate content (data corruption)
+  2. H1 - Missing cache invalidation (stale data everywhere)
+  3. C2 - get_overall_outline crash on plain text (API 500)
+
+No SQL injection vulnerabilities found - all SQL uses parameterized queries
+or whitelisted column names from hardcoded field maps.

@@ -16,6 +16,7 @@ export const deleteProject = (id) => api.delete(`/projects/${id}`);
 export const listOutlines = (pid) => api.get(`/projects/${pid}/outlines/chapters`).then(r => r.data);
 export const getOutline = (pid, ch) => api.get(`/projects/${pid}/outlines/chapters/${ch}`).then(r => r.data);
 export const updateOutline = (pid, ch, data) => api.put(`/projects/${pid}/outlines/chapters/${ch}`, data).then(r => r.data);
+export const deleteOutline = (pid, ch) => api.delete(`/projects/${pid}/outlines/chapters/${ch}`).then(r => r.data);
 export const generateOutline = (pid, ch, data) => api.post(`/projects/${pid}/outlines/chapters/${ch}/generate`, data).then(r => r.data);
 
 // ========== 场景要点 ==========
@@ -26,6 +27,7 @@ export const deleteScene = (pid, ch, order) => api.delete(`/projects/${pid}/outl
 export const listChapters = (pid) => api.get(`/projects/${pid}/chapters`).then(r => r.data);
 export const getChapter = (pid, ch) => api.get(`/projects/${pid}/chapters/${ch}`).then(r => r.data);
 export const updateChapter = (pid, ch, data) => api.put(`/projects/${pid}/chapters/${ch}`, data).then(r => r.data);
+export const deleteChapter = (pid, ch) => api.delete(`/projects/${pid}/chapters/${ch}`).then(r => r.data);
 export const writePreview = (pid, ch) => api.post(`/projects/${pid}/chapters/${ch}/write`).then(r => r.data);
 export const generateChapter = (pid, ch, data) => api.post(`/projects/${pid}/chapters/${ch}/generate`, data, { timeout: 120000 }).then(r => r.data);
 
@@ -33,38 +35,48 @@ export const generateChapter = (pid, ch, data) => api.post(`/projects/${pid}/cha
 export const listChapterVersions = (pid, ch) => api.get(`/projects/${pid}/chapters/${ch}/versions`).then(r => r.data);
 export const restoreChapterVersion = (pid, ch, vid) => api.post(`/projects/${pid}/chapters/${ch}/versions/${vid}/restore`).then(r => r.data);
 
-export const generateChapterStream = async function* (pid, ch, data) {
-  const resp = await fetch(`/api/projects/${pid}/chapters/${ch}/generate-stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data || {}),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      try {
-        yield JSON.parse(line.slice(6));
-      } catch {}
+export function generateChapterStream(pid, ch, data) {
+  const controller = new AbortController();
+  const generator = (async function* () {
+    const resp = await fetch(`/api/projects/${pid}/chapters/${ch}/generate-stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data || {}),
+      signal: controller.signal,
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            yield JSON.parse(line.slice(6));
+          } catch {}
+        }
+      }
+    } finally {
+      reader.releaseLock();
     }
-  }
-};
+  })();
+  const iter = generator[Symbol.asyncIterator].bind(generator);
+  return { [Symbol.asyncIterator]: iter, abort: () => controller.abort() };
+}
 
 // ========== 角色 ==========
 export const listCharacters = (pid) => api.get(`/projects/${pid}/characters`).then(r => r.data);
 export const listCharactersByVolume = (pid, chapter) => api.get(`/projects/${pid}/characters/by-volume`, { params: chapter ? { chapter } : {} }).then(r => r.data);
 export const createCharacter = (pid, data) => api.post(`/projects/${pid}/characters`, data).then(r => r.data);
-export const updateCharacter = (pid, cid, data) => api.put(`/projects/${pid}/characters/${cid}`, data).then(r => r.data);
-export const deleteCharacter = (pid, cid) => api.delete(`/projects/${pid}/characters/${cid}`);
-export const getCharacterSnapshots = (pid, ch) => api.get(`/projects/${pid}/characters/snapshots`, { params: ch ? { chapter: ch } : {} }).then(r => r.data);
+export const updateCharacter = (pid, name, data) => api.put(`/projects/${pid}/characters/${name}`, data).then(r => r.data);
+export const deleteCharacter = (pid, name) => api.delete(`/projects/${pid}/characters/${name}`);
+export const getCharacterSnapshots = (pid, ch) => api.get(`/projects/${pid}/character-snapshots`, { params: ch ? { chapter: ch } : {} }).then(r => r.data);
 
 // ========== 风格 ==========
 export const getStyle = (pid) => api.get(`/projects/${pid}/style`).then(r => r.data);
@@ -77,9 +89,13 @@ export const listForeshadowing = (pid, status) => {
   return api.get(`/projects/${pid}/foreshadowing`, { params }).then(r => r.data);
 };
 export const updateForeshadowing = (pid, fid, data) => api.put(`/projects/${pid}/foreshadowing/${fid}`, data).then(r => r.data);
+export const createForeshadowing = (pid, data) => api.post(`/projects/${pid}/foreshadowing`, data).then(r => r.data);
 
 // ========== 时间线 ==========
 export const listTimeline = (pid) => api.get(`/projects/${pid}/timeline`).then(r => r.data);
+export const createTimeline = (pid, data) => api.post(`/projects/${pid}/timeline`, data).then(r => r.data);
+export const updateTimeline = (pid, tid, data) => api.put(`/projects/${pid}/timeline/${tid}`, data).then(r => r.data);
+export const deleteTimeline = (pid, tid) => api.delete(`/projects/${pid}/timeline/${tid}`);
 
 // ========== 对话 ==========
 export const listChat = (pid) => api.get(`/projects/${pid}/chat`).then(r => r.data);
@@ -94,7 +110,7 @@ export const getSettings = () => api.get('/settings').then(r => r.data);
 export const updateSettings = (data) => api.put('/settings', data).then(r => r.data);
 export const listProviders = () => api.get('/settings/providers').then(r => r.data);
 export const getDefaultPrompts = () => api.get('/settings/default-prompts').then(r => r.data);
-export const fetchModels = (base_url, api_key) => api.post('/settings/models', { base_url, api_key }, { timeout: 15000 }).then(r => r.data);
+export const fetchModels = (base_url, api_key, provider_name) => api.post('/settings/models', { base_url, api_key, provider_name }, { timeout: 15000 }).then(r => r.data);
 
 // ========== 导入 ==========
 export const batchImportChapters = (pid, data) => api.post(`/projects/${pid}/import/batch`, data, { timeout: 120000 }).then(r => r.data);
@@ -110,8 +126,65 @@ export const importFile = (pid, file) => {
 // ========== 预处理 ==========
 export const preprocessProject = (pid) => api.post(`/projects/${pid}/preprocess`, {}, { timeout: 180000 }).then(r => r.data);
 
+// ========== 大纲提取 ==========
+export const extractOutlines = (pid, raw_text) => api.post(`/projects/${pid}/import/extract-outlines`, { raw_text }, { timeout: 30000 }).then(r => r.data);
+
+// ========== 预处理 SSE ==========
+export function preprocessProjectStream(pid, onEvent) {
+  const controller = new AbortController();
+  const run = async () => {
+    const resp = await fetch(`/api/projects/${pid}/preprocess/stream`, {
+      method: 'POST',
+      signal: controller.signal,
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try { onEvent(JSON.parse(line.slice(6))); } catch {}
+      }
+    }
+  };
+  run().catch(e => { if (e.name !== 'AbortError') onEvent({ type: 'error', message: e.message }); });
+  return () => controller.abort();
+}
+
 // ========== 大文件分块处理 ==========
 export const largeProcessImport = (pid) => api.post(`/projects/${pid}/import/large-process`, {}, { timeout: 600000 }).then(r => r.data);
+
+// ========== 大文件分块处理 SSE ==========
+export function largeProcessStream(pid, onEvent) {
+  const controller = new AbortController();
+  const run = async () => {
+    const resp = await fetch(`/api/projects/${pid}/import/large-process/stream`, {
+      method: 'POST',
+      signal: controller.signal,
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try { onEvent(JSON.parse(line.slice(6))); } catch {}
+      }
+    }
+  };
+  run().catch(e => { if (e.name !== 'AbortError') onEvent({ type: 'error', message: e.message }); });
+  return () => controller.abort();
+}
 
 // ========== 总纲 ==========
 export const getOverallOutline = (pid) => api.get(`/projects/${pid}/outline/overall`).then(r => r.data);
@@ -128,6 +201,7 @@ export const generateVolumeOutlines = (pid) => api.post(`/projects/${pid}/outlin
 
 // ========== 批量章纲生成 ==========
 export const batchGenerateOutlines = (pid, vid, data) => api.post(`/projects/${pid}/outlines/chapters/batch-generate`, { volume_id: vid, ...(data || {}) }, { timeout: 120000 }).then(r => r.data);
+export const generateNextOutlines = (pid, count, data) => api.post(`/projects/${pid}/outlines/chapters/generate-next`, { count, ...(data || {}) }, { timeout: 120000 }).then(r => r.data);
 
 // ========== 设定库 ==========
 export const listSettingsLibrary = (pid, category) => api.get(`/projects/${pid}/settings-library`, { params: category ? { category } : {} }).then(r => r.data);

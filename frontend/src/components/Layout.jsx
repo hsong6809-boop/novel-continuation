@@ -11,9 +11,19 @@ export default function Layout() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
+  // 只在挂载时加载一次设置
   useEffect(() => {
     loadSettings();
-  }, [location.pathname]); // 每次路由变化时刷新（从设置页返回时自动更新）
+  }, []);
+
+  // 监听设置变更事件（SettingsPage 保存后触发）
+  useEffect(() => {
+    function handleSettingsChanged() {
+      loadSettings();
+    }
+    window.addEventListener('settings-changed', handleSettingsChanged);
+    return () => window.removeEventListener('settings-changed', handleSettingsChanged);
+  }, []);
 
     async function loadSettings() {
     try {

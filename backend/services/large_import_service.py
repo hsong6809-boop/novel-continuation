@@ -114,8 +114,8 @@ async def process_chunk_outlines(project_id: int, chunk: list, chunk_index: int,
     return data
 
 
-async def large_import_and_process(project_id: int) -> dict:
-    """对已导入的所有章节执行分块处理（章纲+元数据）"""
+async def large_import_and_process(project_id: int, progress_callback=None) -> dict:
+    """对已导入的所有章节执行分块处理（章纲+元数据），支持进度回调"""
     async with get_db_ctx() as db:
         cursor = await db.execute(
             """SELECT chapter_number, title, content, word_count
@@ -146,6 +146,15 @@ async def large_import_and_process(project_id: int) -> dict:
     for i, chunk in enumerate(chunks):
         logger.info("处理分块 %d/%d: 第%d-%d章", i + 1, len(chunks),
                     chunk[0]["chapter_number"], chunk[-1]["chapter_number"])
+
+        if progress_callback:
+            await progress_callback({
+                "type": "progress",
+                "chunk": i + 1,
+                "total_chunks": len(chunks),
+                "chapters": f"{chunk[0]['chapter_number']}-{chunk[-1]['chapter_number']}",
+                "message": f"正在处理第 {i + 1}/{len(chunks)} 块（第{chunk[0]['chapter_number']}-{chunk[-1]['chapter_number']}章）"
+            })
 
         data = await process_chunk_outlines(project_id, chunk, i, len(chunks))
 
@@ -246,6 +255,7 @@ async def large_import_and_process(project_id: int) -> dict:
 
             await db.commit()
 
+        invalidate_project(project_id)
         result["chunk_results"].append({
             "chunk": i + 1,
             "chapters": f"{chunk[0]['chapter_number']}-{chunk[-1]['chapter_number']}",
@@ -254,6 +264,20 @@ async def large_import_and_process(project_id: int) -> dict:
             "foreshadowings": len(data.get("foreshadowings", [])),
             "timeline": len(data.get("timeline", [])),
             "settings": len(data.get("settings_library", [])),
+        })
+
+        if progress_callback:
+            await progress_callback({
+                "type": "chunk_done",
+                "chunk": i + 1,
+                "total_chunks": len(chunks),
+                "result": result["chunk_results"][-1],
+            })
+
+    if progress_callback:
+        await progress_callback({
+            "type": "done",
+            "result": result,
         })
 
     return result

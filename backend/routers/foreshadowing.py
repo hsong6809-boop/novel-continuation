@@ -5,6 +5,7 @@ from typing import List
 from models.database import get_db_ctx
 from models.schemas import ForeshadowingCreate, ForeshadowingOut, ForeshadowingUpdate
 from ._common import _filter_fields, FORESHADOW_FIELDS
+from utils.cache import invalidate_project, get_cached, set_cached, foreshadowing_key
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,12 @@ router = APIRouter(prefix="/api/projects", tags=["foreshadowing"])
 
 @router.get("/{project_id}/foreshadowing", response_model=List[ForeshadowingOut])
 async def list_foreshadowing(project_id: int, status: str = None):
+    # 只缓存无筛选的列表（最常见场景）
+    cache_key = foreshadowing_key(project_id) if not status else None
+    if cache_key:
+        cached = get_cached(cache_key)
+        if cached is not None:
+            return cached
     async with get_db_ctx() as db:
         if status:
             cursor = await db.execute(
@@ -24,7 +31,10 @@ async def list_foreshadowing(project_id: int, status: str = None):
                 "SELECT * FROM foreshadowing WHERE project_id=? ORDER BY planted_chapter",
                 (project_id,),
             )
-        return [dict(r) for r in await cursor.fetchall()]
+        result = [dict(r) for r in await cursor.fetchall()]
+        if cache_key:
+            set_cached(cache_key, result)
+        return result
 
 
 @router.post("/{project_id}/foreshadowing", response_model=ForeshadowingOut, status_code=201)
@@ -42,6 +52,7 @@ async def create_foreshadowing(project_id: int, data: ForeshadowingCreate):
              data.expected_reveal_chapter, data.importance, data.notes),
         )
         await db.commit()
+        invalidate_project(project_id)
         cursor = await db.execute("SELECT * FROM foreshadowing WHERE id=?", (cursor.lastrowid,))
         return dict(await cursor.fetchone())
 
@@ -58,6 +69,7 @@ async def update_foreshadowing(project_id: int, fid: int, data: ForeshadowingUpd
             f"UPDATE foreshadowing SET {set_clause} WHERE id=? AND project_id=?", values
         )
         await db.commit()
+        invalidate_project(project_id)
         cursor = await db.execute("SELECT * FROM foreshadowing WHERE id=? AND project_id=?", (fid, project_id))
         row = await cursor.fetchone()
         if not row:

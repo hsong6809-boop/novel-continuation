@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Upload, FileText, Clipboard, SplitSquareHorizontal, Loader2, Check, AlertCircle, Trash2, Brain, Eye, Pencil, Save, X, Search, BookOpen, ChevronDown, ChevronUp } from 'lucide-react';
-import { batchImportChapters, importFile, preprocessProject, largeProcessImport, listChapters, getChapter, updateChapter } from '../api/client';
+import { Upload, FileText, Clipboard, SplitSquareHorizontal, Loader2, Check, AlertCircle, Trash2, Brain, Eye, Pencil, Save, X, Search, BookOpen, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { batchImportChapters, importFile, preprocessProject, preprocessProjectStream, largeProcessImport, largeProcessStream, listChapters, getChapter, updateChapter, deleteChapter, extractOutlines } from '../api/client';
 import { useToast } from './ui/Toast';
 
 // 中文数字转阿拉伯数字
@@ -44,12 +44,16 @@ export default function ImportPanel({ project, onImported }) {
   const [mode, setMode] = useState(null); // 'paste' | 'file'
   const [pasteText, setPasteText] = useState('');
   const [previewChapters, setPreviewChapters] = useState([]);
+  const [rawText, setRawText] = useState(''); // 原始文档文本（用于大纲提取）
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [preprocessStatus, setPreprocessStatus] = useState(null); // null | 'running' | 'done' | 'error'
   const [preprocessResult, setPreprocessResult] = useState(null);
+  const [preprocessProgress, setPreprocessProgress] = useState(null); // { chunk, total_chunks, message }
   const fileRef = useRef(null);
+  const abortRef = useRef(null); // SSE abort function
+  const importTimerRef = useRef(null); // untracked setTimeout for post-import
   const toast = useToast();
 
   // 章节查看/编辑
@@ -68,10 +72,25 @@ export default function ImportPanel({ project, onImported }) {
     loadChapters();
   }, [project.id]);
 
+  // 组件卸载时中断 SSE 连接和定时器
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) {
+        abortRef.current();
+        abortRef.current = null;
+      }
+      if (importTimerRef.current) {
+        clearTimeout(importTimerRef.current);
+        importTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // ========== 粘贴模式：智能预览拆分 ==========
   function previewPaste() {
     if (!pasteText.trim()) { setError('请先粘贴内容'); return; }
     setError(null);
+    setRawText(pasteText); // 保存原始文本
     const chapters = smartSplit(pasteText);
     setPreviewChapters(chapters);
   }
@@ -134,6 +153,7 @@ export default function ImportPanel({ project, onImported }) {
 
     try {
       const text = await file.text();
+      setRawText(text); // 保存原始文本
       const chapters = smartSplit(text);
       setPreviewChapters(chapters);
       setMode('file');
@@ -154,30 +174,35 @@ export default function ImportPanel({ project, onImported }) {
     setResult(null);
 
     try {
-      let res;
-      if (mode === 'file' && fileRef.current) {
-        res = await importFile(project.id, fileRef.current);
-      } else {
-        res = await batchImportChapters(project.id, {
-          chapters: previewChapters.map(ch => ({
-            chapter_number: ch.chapter_number,
-            title: ch.title,
-            content: ch.content,
-          })),
-        });
-      }
+      // 统一使用 batchImportChapters，保证前端预览与实际导入一致
+      const res = await batchImportChapters(project.id, {
+        chapters: previewChapters.map(ch => ({
+          chapter_number: ch.chapter_number,
+          title: ch.title,
+          content: ch.content,
+        })),
+      });
       setResult(res);
       if (onImported) onImported();
       loadChapters();
 
-      // 首次导入时自动预处理
-      if (project.current_chapter === 0 && res.imported > 0) {
+      // 导入后自动预处理
+      if (res.imported > 0) {
+        // 首次导入且有原始文本时，先提取总纲和卷纲
+        const isFirstImport = project.current_chapter === 0;
+        if (isFirstImport && rawText) {
+          try {
+            await extractOutlines(project.id, rawText);
+            if (onImported) onImported();
+          } catch (e) {
+            console.error('大纲提取失败:', e);
+          }
+        }
+
         if (res.total_words > 50000) {
-          // 大文件（>5万字）：使用分块处理
-          setTimeout(() => handleLargeProcess(), 500);
+          importTimerRef.current = setTimeout(() => handleLargeProcess(), 500);
         } else {
-          // 小文件：使用原有预处理
-          setTimeout(() => handlePreprocess(), 500);
+          importTimerRef.current = setTimeout(() => handlePreprocess(), 500);
         }
       }
     } catch (e) {
@@ -187,34 +212,56 @@ export default function ImportPanel({ project, onImported }) {
     }
   }
 
-  // ========== 预处理 ==========
-  async function handlePreprocess() {
+  // ========== 预处理（SSE） ==========
+  function handlePreprocess() {
     setPreprocessStatus('running');
+    setPreprocessProgress(null);
     setError(null);
-    try {
-      const res = await preprocessProject(project.id);
-      setPreprocessResult(res);
-      setPreprocessStatus('done');
-      if (onImported) onImported();
-    } catch (e) {
-      setPreprocessStatus('error');
-      setError('预处理失败: ' + (e.response?.data?.detail || e.message));
-    }
+    abortRef.current = preprocessProjectStream(project.id, (event) => {
+      if (event.type === 'start') {
+        setPreprocessProgress({ message: event.message });
+      } else if (event.type === 'done') {
+        setPreprocessResult(event.result);
+        setPreprocessStatus('done');
+        setPreprocessProgress(null);
+        if (onImported) onImported();
+      } else if (event.type === 'error') {
+        setPreprocessStatus('error');
+        setPreprocessProgress(null);
+        setError('预处理失败: ' + event.message);
+      }
+    });
   }
 
-  // ========== 大文件分块处理 ==========
-  async function handleLargeProcess() {
+  // ========== 大文件分块处理（SSE） ==========
+  function handleLargeProcess() {
     setPreprocessStatus('running');
+    setPreprocessProgress(null);
     setError(null);
-    try {
-      const res = await largeProcessImport(project.id);
-      setPreprocessResult(res);
-      setPreprocessStatus('done');
-      if (onImported) onImported();
-    } catch (e) {
-      setPreprocessStatus('error');
-      setError('分块处理失败: ' + (e.response?.data?.detail || e.message));
-    }
+    abortRef.current = largeProcessStream(project.id, (event) => {
+      if (event.type === 'progress') {
+        setPreprocessProgress({
+          chunk: event.chunk,
+          totalChunks: event.total_chunks,
+          message: event.message,
+        });
+      } else if (event.type === 'chunk_done') {
+        setPreprocessProgress({
+          chunk: event.chunk,
+          totalChunks: event.total_chunks,
+          message: `第 ${event.chunk}/${event.total_chunks} 块处理完成`,
+        });
+      } else if (event.type === 'done') {
+        setPreprocessResult(event.result);
+        setPreprocessStatus('done');
+        setPreprocessProgress(null);
+        if (onImported) onImported();
+      } else if (event.type === 'error') {
+        setPreprocessStatus('error');
+        setPreprocessProgress(null);
+        setError('分块处理失败: ' + event.message);
+      }
+    });
   }
 
   // ========== 章节查看/编辑 ==========
@@ -263,7 +310,26 @@ export default function ImportPanel({ project, onImported }) {
     }
   }
 
+  async function handleDeleteChapter(ch) {
+    if (!await toast.confirm(`确定删除第${ch}章？此操作会同时删除该章的正文、章纲、场景要点和版本记录。`)) return;
+    try {
+      await deleteChapter(project.id, ch);
+      const data = await listChapters(project.id);
+      setChaptersList(data);
+      if (expandedChapter === ch) {
+        setExpandedChapter(null);
+        setExpandedContent('');
+        setEditingChapter(null);
+      }
+      if (onImported) onImported();
+      toast.success('已删除');
+    } catch (e) {
+      toast.error('删除失败: ' + (e.response?.data?.detail || e.message));
+    }
+  }
+
   function reset() {
+    if (abortRef.current) { abortRef.current(); abortRef.current = null; }
     setMode(null);
     setPasteText('');
     setPreviewChapters([]);
@@ -271,6 +337,7 @@ export default function ImportPanel({ project, onImported }) {
     setError(null);
     setPreprocessStatus(null);
     setPreprocessResult(null);
+    setPreprocessProgress(null);
     fileRef.current = null;
     setEditingChapter(null);
     setEditContent('');
@@ -342,6 +409,15 @@ export default function ImportPanel({ project, onImported }) {
                         : <Eye className="w-3.5 h-3.5 text-ink-400 shrink-0" />
                       }
                     </button>
+                    <div className="flex justify-end px-4 pb-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteChapter(ch.chapter_number); }}
+                        className="flex items-center gap-1 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10 rounded transition"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        删除
+                      </button>
+                    </div>
 
                     {/* 展开内容 */}
                     {expandedChapter === ch.chapter_number && (
@@ -404,35 +480,61 @@ export default function ImportPanel({ project, onImported }) {
         </div>
 
         {!mode && !result && (
-          <div className="grid grid-cols-2 gap-4">
-            <button
-              onClick={() => setMode('paste')}
-              className="flex flex-col items-center gap-3 p-6 input-surface hover:bg-surface-3 border border-border-subtle hover:border-amber-500/30 rounded-xl transition group"
-            >
-              <Clipboard className="w-8 h-8 text-ink-400 group-hover:text-vermillion-600 transition" />
-              <div className="text-center">
-                <div className="text-sm font-medium">粘贴文本</div>
-                <div className="text-xs text-ink-400 mt-1">3~5 章，直接粘贴内容</div>
-              </div>
-            </button>
+          <div className="space-y-4">
+            {/* 提示：文档格式说明 */}
+            <div className="bg-vermillion-600/[0.04] border border-vermillion-600/10 rounded-lg px-4 py-3 text-xs text-ink-500 leading-relaxed space-y-1">
+              <p className="font-medium text-ink-700">📄 文档格式建议</p>
+              <p>请在文档<strong>开头</strong>编写小说<strong>总纲</strong>和<strong>首卷卷纲</strong>，正文按章节标题格式编排。</p>
+              <p>导入后系统会自动提取总纲、卷纲和章纲到「大纲管理」页面。</p>
+              <p className="text-ink-400">建议格式：<code className="px-1 py-0.5 bg-surface-3 rounded text-[11px]">【总纲】</code> ... <code className="px-1 py-0.5 bg-surface-3 rounded text-[11px]">【卷纲】</code> ... <code className="px-1 py-0.5 bg-surface-3 rounded text-[11px]">第一章 标题</code> ...</p>
+            </div>
 
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="flex flex-col items-center gap-3 p-6 input-surface hover:bg-surface-3 border border-border-subtle hover:border-purple-500/50 rounded-xl transition group"
-            >
-              <Upload className="w-8 h-8 text-ink-400 group-hover:text-inkblue-600 transition" />
-              <div className="text-center">
-                <div className="text-sm font-medium">上传文件</div>
-                <div className="text-xs text-ink-400 mt-1">几十万字的大文件</div>
-              </div>
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".txt,.md,.doc,.docx"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => setMode('paste')}
+                className="flex flex-col items-center gap-3 p-6 input-surface hover:bg-surface-3 border border-border-subtle hover:border-amber-500/30 rounded-xl transition group"
+              >
+                <Clipboard className="w-8 h-8 text-ink-400 group-hover:text-vermillion-600 transition" />
+                <div className="text-center">
+                  <div className="text-sm font-medium">粘贴文本</div>
+                  <div className="text-xs text-ink-400 mt-1">3~5 章，直接粘贴内容</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="flex flex-col items-center gap-3 p-6 input-surface hover:bg-surface-3 border border-border-subtle hover:border-purple-500/50 rounded-xl transition group"
+              >
+                <Upload className="w-8 h-8 text-ink-400 group-hover:text-inkblue-600 transition" />
+                <div className="text-center">
+                  <div className="text-sm font-medium">上传文件</div>
+                  <div className="text-xs text-ink-400 mt-1">几十万字的大文件</div>
+                </div>
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".txt,.md,.doc,.docx"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+            </div>
+            {chaptersList.length > 0 && (
+              <button
+                onClick={() => {
+                  const totalWords = chaptersList.reduce((s, ch) => s + (ch.word_count || 0), 0);
+                  if (totalWords > 50000) {
+                    handleLargeProcess();
+                  } else {
+                    handlePreprocess();
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 input-surface hover:bg-surface-3 border border-border-subtle hover:border-vermillion-500/30 rounded-xl transition text-sm text-ink-500"
+              >
+                <Brain className="w-4 h-4 text-vermillion-600" />
+                重新分析已有章节
+              </button>
+            )}
           </div>
         )}
 
@@ -565,13 +667,29 @@ export default function ImportPanel({ project, onImported }) {
               <div className="bg-vermillion-600/[0.06] border border-amber-500/15 rounded-lg p-4">
                 <div className="flex items-center gap-3">
                   <Loader2 className="w-5 h-5 text-vermillion-600 animate-spin" />
-                  <div>
-                    <div className="text-sm font-medium text-vermillion-600">正在预处理...</div>
-                    <p className="text-xs text-ink-400">
-                      {isLargeImport
-                        ? 'AI 正在按分块处理大文件，生成章纲并提取角色/伏笔/时间线，可能需要较长时间'
-                        : 'AI 正在分析角色、伏笔、时间线，可能需要 30-60 秒'}
-                    </p>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-vermillion-600">
+                      {preprocessProgress?.message || '正在预处理...'}
+                    </div>
+                    {preprocessProgress?.chunk && (
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between text-xs text-ink-400 mb-1">
+                          <span>分块进度</span>
+                          <span>{preprocessProgress.chunk} / {preprocessProgress.totalChunks}</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-surface-3 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-vermillion-600 rounded-full transition-all duration-300"
+                            style={{ width: `${(preprocessProgress.chunk / preprocessProgress.totalChunks) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {!preprocessProgress?.chunk && (
+                      <p className="text-xs text-ink-400 mt-1">
+                        AI 正在分析角色、伏笔、时间线和章纲...
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -618,7 +736,25 @@ export default function ImportPanel({ project, onImported }) {
               </div>
             )}
 
-            <button onClick={reset} className="px-4 py-2 bg-surface-3 hover:bg-black/[0.05] rounded-lg text-sm text-vermillion-600 transition">继续导入</button>
+            <div className="flex gap-2">
+              <button onClick={reset} className="px-4 py-2 bg-surface-3 hover:bg-black/[0.05] rounded-lg text-sm text-vermillion-600 transition">继续导入</button>
+              <button
+                onClick={() => {
+                  setPreprocessStatus(null);
+                  setPreprocessResult(null);
+                  const totalWords = chaptersList.reduce((s, ch) => s + (ch.word_count || 0), 0);
+                  if (totalWords > 50000) {
+                    handleLargeProcess();
+                  } else {
+                    handlePreprocess();
+                  }
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 bg-surface-3 hover:bg-black/[0.05] rounded-lg text-sm text-ink-500 transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                重新分析
+              </button>
+            </div>
           </div>
         )}
 

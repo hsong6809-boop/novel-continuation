@@ -35,7 +35,7 @@ async def _check_outline(project_id: int, chapter: int):
     async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT id, project_id, chapter_number, volume_id, title, "
-            "core_objective, emotional_arc, hooks, rhythm_type, chapter_opening "
+            "core_objective, emotional_arc, hooks, core_conflict, rhythm_type, chapter_opening "
             "FROM chapter_outlines WHERE project_id=? AND chapter_number=?",
             (project_id, chapter),
         )
@@ -85,13 +85,24 @@ async def generate_stream(project_id: int, chapter: int, custom_instructions: st
                 project_id, chapter, dict(outline).get("rhythm_type", ""), temperature)
 
     full_text = ""
+    reasoning_text = ""
     try:
-        async for chunk in chat_completion_stream(messages, temperature=temperature):
-            full_text += chunk
-            yield {"type": "chunk", "content": chunk}
+        # 不硬性限制 max_tokens，让 AI 写完章纲内容；字数靠提示词约束
+        async for chunk in chat_completion_stream(messages, temperature=temperature, max_tokens=8192):
+            if isinstance(chunk, dict):
+                if chunk["type"] == "reasoning":
+                    reasoning_text += chunk["content"]
+                    yield {"type": "reasoning", "content": chunk["content"]}
+                elif chunk["type"] == "content":
+                    full_text += chunk["content"]
+                    yield {"type": "chunk", "content": chunk["content"]}
+            else:
+                # 兼容旧格式（纯文本）
+                full_text += chunk
+                yield {"type": "chunk", "content": chunk}
     except Exception as e:
         logger.error("流式续写 LLM 调用失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
-        yield {"type": "error", "message": f"AI 调用失败: {str(e)}"}
+        yield {"type": "error", "message": "AI 调用失败，请检查网络和模型配置"}
         return
 
     if not full_text.strip():
@@ -108,27 +119,40 @@ async def generate_stream(project_id: int, chapter: int, custom_instructions: st
 
     # 提取元数据
     meta = await _extract_meta(project_id, chapter)
-    yield {"type": "done", "meta": meta}
+    if "error" in meta:
+        logger.warning("元数据提取失败: project=%s chapter=%s error=%s", project_id, chapter, meta["error"])
+        yield {"type": "done", "meta": {}, "meta_error": meta["error"]}
+    else:
+        yield {"type": "done", "meta": meta}
 
-    # 自审（非阻断）
-    try:
-        from services.self_review_service import review_chapter
-        review = await review_chapter(project_id, chapter)
-        if review and "error" not in review:
-            verdict = review.get("overall_verdict", "pass")
-            if verdict != "pass":
-                yield {"type": "info", "message": f"自审完成：{verdict}", "review": review}
-    except Exception:
-        logger.warning("自审失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
+    # 自审 + 卷风格分析并行执行
+    async def _safe_review():
+        try:
+            from services.self_review_service import review_chapter
+            review = await review_chapter(project_id, chapter)
+            if review and "error" not in review:
+                verdict = review.get("overall_verdict", "pass")
+                if verdict != "pass":
+                    return {"type": "info", "message": f"自审完成：{verdict}", "review": review}
+        except Exception:
+            logger.warning("自审失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
+        return None
 
-    # 卷完成自动风格分析（非阻断）
-    try:
-        from services.style_service import auto_analyze_if_volume_complete
-        style_result = await auto_analyze_if_volume_complete(project_id, chapter)
-        if style_result and "error" not in style_result:
-            yield {"type": "info", "message": f"第{style_result.get('volume_number')}卷风格分析已完成"}
-    except Exception:
-        logger.warning("自动风格分析失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
+    async def _safe_style():
+        try:
+            from services.style_service import auto_analyze_if_volume_complete
+            style_result = await auto_analyze_if_volume_complete(project_id, chapter)
+            if style_result and "error" not in style_result:
+                return {"type": "info", "message": f"第{style_result.get('volume_number')}卷风格分析已完成"}
+        except Exception:
+            logger.warning("自动风格分析失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
+        return None
+
+    review_result, style_result = await asyncio.gather(_safe_review(), _safe_style())
+    if review_result:
+        yield review_result
+    if style_result:
+        yield style_result
 
 
 async def generate_chapter_content(project_id: int, chapter: int, data) -> dict:
@@ -141,13 +165,13 @@ async def generate_chapter_content(project_id: int, chapter: int, data) -> dict:
     temperature = _get_temperature(outline)
 
     try:
-        response = await chat_completion(messages, temperature=temperature, max_tokens=4096)
+        response = await chat_completion(messages, temperature=temperature, max_tokens=8192)
         content = extract_content(response)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
         logger.error("非流式续写 LLM 调用失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
-        raise HTTPException(500, f"AI 调用失败: {str(e)}")
+        raise HTTPException(500, "AI 调用失败，请检查网络和模型配置")
 
     if not content:
         raise HTTPException(500, "AI 返回了空内容")
@@ -160,24 +184,24 @@ async def generate_chapter_content(project_id: int, chapter: int, data) -> dict:
         logger.error("章节保存失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
         raise HTTPException(500, f"章节保存失败: {str(e)}")
 
-    # 元数据提取 + 自审 + 风格分析并行执行（互相独立）
-    meta_task = asyncio.create_task(_extract_meta(project_id, chapter))
+    # 元数据提取 + 自审 + 风格分析并行执行
+    meta = await _extract_meta(project_id, chapter)
 
-    async def _self_review():
+    async def _safe_review():
         try:
             from services.self_review_service import review_chapter
             await review_chapter(project_id, chapter)
         except Exception:
             logger.warning("自审失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
 
-    async def _style_analysis():
+    async def _safe_style():
         try:
             from services.style_service import auto_analyze_if_volume_complete
             await auto_analyze_if_volume_complete(project_id, chapter)
         except Exception:
             logger.warning("自动风格分析失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
 
-    meta, _, _ = await asyncio.gather(meta_task, _self_review(), _style_analysis())
+    await asyncio.gather(_safe_review(), _safe_style())
 
     return {
         "chapter_number": chapter,

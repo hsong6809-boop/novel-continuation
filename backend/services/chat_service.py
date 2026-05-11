@@ -3,6 +3,7 @@ import logging
 from models.database import get_db_ctx
 from services.llm_client import chat_completion, extract_content
 from utils.prompt_manager import format_prompt
+from utils.cache import get_cached, set_cached, project_key, characters_key, foreshadowing_key
 
 logger = logging.getLogger(__name__)
 
@@ -52,41 +53,56 @@ async def handle_chat(project_id: int, message: str, mode: str = None) -> dict:
     if not message or not message.strip():
         return {"reply": "消息不能为空", "history": []}
 
+    # 1. 项目信息（优先从缓存读取）
+    project = get_cached(project_key(project_id))
+
+    # 2. 角色信息（优先从缓存读取）
+    characters = get_cached(characters_key(project_id))
+
+    # 3. 伏笔信息（优先从缓存读取）
+    foreshadowings = get_cached(foreshadowing_key(project_id))
+
     async with get_db_ctx() as db:
-        # 1. 加载对话历史
+        # 4. 加载对话历史
         cursor = await db.execute(
-            "SELECT role, content FROM chat_history WHERE project_id=? ORDER BY created_at",
+            "SELECT role, content FROM (SELECT role, content, created_at FROM chat_history WHERE project_id=? ORDER BY created_at DESC LIMIT 20) AS recent ORDER BY created_at",
             (project_id,),
         )
         history = [dict(r) for r in await cursor.fetchall()]
 
-        # 2. 加载项目信息
-        cursor = await db.execute(
-            "SELECT id, name, genre, description, model_provider, model_name, "
-            "target_words, current_words, current_chapter, style_notes, "
-            "volume_summaries, platform, notes, created_at, updated_at "
-            "FROM projects WHERE id=?", (project_id,)
-        )
-        row = await cursor.fetchone()
-        if not row:
-            return {"reply": "项目不存在", "history": []}
-        project = dict(row)
+        # 5. 项目信息（缓存未命中时从 DB 加载）
+        if project is None:
+            cursor = await db.execute(
+                "SELECT id, name, genre, description, model_provider, model_name, "
+                "target_words, current_words, current_chapter, style_notes, "
+                "volume_summaries, platform, notes, created_at, updated_at "
+                "FROM projects WHERE id=?", (project_id,)
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return {"reply": "项目不存在", "history": []}
+            project = dict(row)
+            set_cached(project_key(project_id), project)
 
-        # 3. 加载角色信息
-        cursor = await db.execute(
-            "SELECT name, role, personality, appearance, background, relationships, speech_style FROM characters WHERE project_id=?",
-            (project_id,),
-        )
-        characters = [dict(r) for r in await cursor.fetchall()]
+        # 6. 角色信息（缓存未命中时从 DB 加载）
+        if characters is None:
+            cursor = await db.execute(
+                "SELECT name, role, personality, appearance, background, relationships, speech_style FROM characters WHERE project_id=?",
+                (project_id,),
+            )
+            characters = [dict(r) for r in await cursor.fetchall()]
+            set_cached(characters_key(project_id), characters)
 
-        # 4. 加载伏笔
-        cursor = await db.execute(
-            "SELECT description, planted_chapter, expected_reveal_chapter, status, importance FROM foreshadowing WHERE project_id=? ORDER BY planted_chapter",
-            (project_id,),
-        )
-        foreshadowings = [dict(r) for r in await cursor.fetchall()]
+        # 7. 伏笔信息（缓存未命中时从 DB 加载）
+        if foreshadowings is None:
+            cursor = await db.execute(
+                "SELECT description, planted_chapter, expected_reveal_chapter, status, importance FROM foreshadowing WHERE project_id=? ORDER BY planted_chapter",
+                (project_id,),
+            )
+            foreshadowings = [dict(r) for r in await cursor.fetchall()]
+            set_cached(foreshadowing_key(project_id), foreshadowings)
 
-        # 5. 加载时间线（最近10章）
+        # 8. 加载时间线（最近10章）
         cursor = await db.execute(
             "SELECT chapter_number, story_time_description, summary FROM timeline WHERE project_id=? ORDER BY chapter_number DESC LIMIT 10",
             (project_id,),
@@ -94,7 +110,7 @@ async def handle_chat(project_id: int, message: str, mode: str = None) -> dict:
         timeline = [dict(r) for r in await cursor.fetchall()]
         timeline.reverse()
 
-        # 6. 加载最近5章内容摘要
+        # 9. 加载最近5章内容摘要
         cursor = await db.execute(
             "SELECT chapter_number, title, content, summary FROM chapters WHERE project_id=? ORDER BY chapter_number DESC LIMIT 5",
             (project_id,),
@@ -102,7 +118,7 @@ async def handle_chat(project_id: int, message: str, mode: str = None) -> dict:
         recent_chapters = [dict(r) for r in await cursor.fetchall()]
         recent_chapters.reverse()
 
-        # 7. 加载章纲
+        # 10. 加载章纲
         cursor = await db.execute(
             "SELECT chapter_number, title, core_objective, emotional_arc, hooks FROM chapter_outlines WHERE project_id=? ORDER BY chapter_number DESC LIMIT 10",
             (project_id,),
@@ -157,25 +173,33 @@ async def handle_chat(project_id: int, message: str, mode: str = None) -> dict:
     messages.append({"role": "user", "content": message})
 
     # 调用 LLM
+    reasoning = ""
     try:
         response = await chat_completion(messages, temperature=0.7, max_tokens=2048)
         reply = extract_content(response)
+        # 提取思考过程
+        try:
+            reasoning = response["choices"][0]["message"].get("reasoning_content", "") or ""
+        except (KeyError, IndexError):
+            pass
     except ValueError as e:
         reply = f"⚠️ 配置错误：{str(e)}"
     except Exception as e:
         logger.error("对话 LLM 调用失败: project=%s", project_id, exc_info=True)
         reply = f"⚠️ 调用失败：{str(e)}"
 
-    # 保存到历史
+    # 保存到历史（错误消息不保存，避免污染上下文）
+    is_error = reply.startswith("⚠️")
     async with get_db_ctx() as db:
         await db.execute(
             "INSERT INTO chat_history (project_id, role, content) VALUES (?, ?, ?)",
             (project_id, "user", message),
         )
-        await db.execute(
-            "INSERT INTO chat_history (project_id, role, content) VALUES (?, ?, ?)",
-            (project_id, "assistant", reply),
-        )
+        if not is_error:
+            await db.execute(
+                "INSERT INTO chat_history (project_id, role, content) VALUES (?, ?, ?)",
+                (project_id, "assistant", reply),
+            )
         # 清理旧记录，保留最近200条
         await db.execute(
             """DELETE FROM chat_history WHERE project_id=? AND id NOT IN
@@ -185,4 +209,4 @@ async def handle_chat(project_id: int, message: str, mode: str = None) -> dict:
         )
         await db.commit()
 
-    return {"reply": reply, "history": []}
+    return {"reply": reply, "reasoning": reasoning, "history": []}

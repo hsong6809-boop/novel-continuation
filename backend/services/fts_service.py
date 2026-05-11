@@ -38,8 +38,13 @@ async def search_related_fragments(
         try:
             # 转义 FTS5 特殊字符，防止查询注入
             safe_keywords = []
+            # FTS5 操作符和特殊字符
+            fts_operators = {'OR', 'AND', 'NOT', 'NEAR', 'OR*', 'AND*', 'NOT*', 'NEAR*'}
             for kw in keywords:
                 cleaned = kw.replace('"', '').replace('*', '').replace("'", "")
+                # 跳过 FTS5 操作符
+                if cleaned.upper() in fts_operators:
+                    continue
                 if cleaned:
                     safe_keywords.append(f'"{cleaned}"')
             if not safe_keywords:

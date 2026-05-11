@@ -4,6 +4,7 @@ from models.database import get_db_ctx
 from services.llm_client import chat_completion, extract_content
 from utils.json_parser import extract_json
 from utils.prompt_manager import format_prompt
+from utils.cache import invalidate_project
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,14 @@ async def extract_chapter_meta(project_id: int, chapter: int) -> dict:
         # 保存角色快照
         snapshots = data.get("character_snapshots", {})
         if snapshots:
-            for char_name, state in snapshots.items():
+            # 兼容 dict {"角色名": "状态"} 和 list [{"name": "角色名", "state": "状态"}]
+            if isinstance(snapshots, list):
+                items = [(s.get("name", ""), s.get("state", "")) for s in snapshots if isinstance(s, dict)]
+            elif isinstance(snapshots, dict):
+                items = snapshots.items()
+            else:
+                items = []
+            for char_name, state in items:
                 if state:
                     await db.execute(
                         """INSERT INTO character_snapshots
@@ -114,6 +122,12 @@ async def extract_chapter_meta(project_id: int, chapter: int) -> dict:
             for fs in new_foreshadowings:
                 desc = fs.get("description", "")
                 if not desc:
+                    continue
+                cursor = await db.execute(
+                    "SELECT id FROM foreshadowing WHERE project_id=? AND description=?",
+                    (project_id, desc),
+                )
+                if await cursor.fetchone():
                     continue
                 await db.execute(
                     """INSERT INTO foreshadowing
@@ -137,9 +151,17 @@ async def extract_chapter_meta(project_id: int, chapter: int) -> dict:
                     continue
                 matched_id = None
                 for af in active_list:
-                    if af["description"] == desc or desc in af["description"] or af["description"] in desc:
+                    # 精确匹配或高度相似（长度比 > 0.7 且互相包含）
+                    if af["description"] == desc:
                         matched_id = af["id"]
                         break
+                    # 相似度检查：避免短字符串误匹配长字符串
+                    shorter = min(len(desc), len(af["description"]))
+                    longer = max(len(desc), len(af["description"]))
+                    if shorter > 10 and longer > 0 and shorter / longer > 0.7:
+                        if desc in af["description"] or af["description"] in desc:
+                            matched_id = af["id"]
+                            break
                 if matched_id:
                     await db.execute(
                         "UPDATE foreshadowing SET status='resolved', actual_reveal_chapter=? WHERE id=?",
@@ -186,5 +208,6 @@ async def extract_chapter_meta(project_id: int, chapter: int) -> dict:
                     )
 
         await db.commit()
+    invalidate_project(project_id)
 
     return data

@@ -1,24 +1,47 @@
 """数据库连接与初始化"""
+import logging
 import aiosqlite
 from contextlib import asynccontextmanager
 from config import DATABASE_DIR
 
+logger = logging.getLogger(__name__)
+
 DB_PATH = DATABASE_DIR / "novel.db"
+
+# 模块级单例连接（SQLite 单写入者，共享连接正确且高效）
+_db_connection: aiosqlite.Connection | None = None
+
+
+async def _get_shared_connection() -> aiosqlite.Connection:
+    """获取或创建共享数据库连接（懒加载）"""
+    global _db_connection
+    if _db_connection is None:
+        _db_connection = await aiosqlite.connect(str(DB_PATH))
+        _db_connection.row_factory = aiosqlite.Row
+        await _db_connection.execute("PRAGMA journal_mode=WAL")
+        await _db_connection.execute("PRAGMA foreign_keys=ON")
+        logger.info("Database connection initialized")
+    return _db_connection
+
+
+async def close_db():
+    """关闭共享连接（应用关闭时调用）"""
+    global _db_connection
+    if _db_connection is not None:
+        await _db_connection.close()
+        _db_connection = None
+        logger.info("Database connection closed")
 
 
 async def get_db() -> aiosqlite.Connection:
-    """获取数据库连接"""
-    db = await aiosqlite.connect(str(DB_PATH))
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("PRAGMA foreign_keys=ON")
-    return db
+    """获取数据库连接（共享单例）"""
+    return await _get_shared_connection()
 
 
 @asynccontextmanager
 async def get_db_ctx():
-    """数据库连接上下文管理器，自动关闭连接"""
-    db = await get_db()
+    """数据库连接上下文管理器（共享连接，不关闭）"""
+    db = await _get_shared_connection()
     try:
         yield db
     except Exception:
@@ -27,13 +50,14 @@ async def get_db_ctx():
         except Exception:
             pass
         raise
-    finally:
-        await db.close()
 
 
 async def init_db():
     """初始化数据库表"""
-    db = await get_db()
+    db = await aiosqlite.connect(str(DB_PATH))
+    db.row_factory = aiosqlite.Row
+    await db.execute("PRAGMA journal_mode=WAL")
+    await db.execute("PRAGMA foreign_keys=ON")
     try:
         await db.executescript(SCHEMA_SQL)
         await db.commit()
@@ -45,8 +69,18 @@ async def init_db():
 
 async def _migrate():
     """增量迁移：给已有数据库补新表/新字段"""
-    db = await get_db()
+    db = await aiosqlite.connect(str(DB_PATH))
+    db.row_factory = aiosqlite.Row
+    await db.execute("PRAGMA journal_mode=WAL")
+    await db.execute("PRAGMA foreign_keys=ON")
     try:
+        # 检查 projects 表是否存在，不存在则跳过迁移（首次启动）
+        cursor = await db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='projects'"
+        )
+        if not await cursor.fetchone():
+            logger.info("数据库为空，跳过迁移")
+            return
         # 检查 volume_outlines 表是否存在
         cursor = await db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='volume_outlines'"
@@ -110,7 +144,7 @@ async def _migrate():
 
         # === 新增字段迁移 ===
 
-        # chapter_outlines 新增 rhythm_type, chapter_opening
+        # chapter_outlines 新增 rhythm_type, chapter_opening, plot_points, info_delivery, character_development, setup_for_future
         cursor = await db.execute("PRAGMA table_info(chapter_outlines)")
         columns = [row[1] for row in await cursor.fetchall()]
         if "rhythm_type" not in columns:
@@ -119,6 +153,16 @@ async def _migrate():
             await db.execute("ALTER TABLE chapter_outlines ADD COLUMN chapter_opening TEXT")
         if "source" not in columns:
             await db.execute("ALTER TABLE chapter_outlines ADD COLUMN source TEXT DEFAULT 'extracted'")
+        if "plot_points" not in columns:
+            await db.execute("ALTER TABLE chapter_outlines ADD COLUMN plot_points TEXT")
+        if "info_delivery" not in columns:
+            await db.execute("ALTER TABLE chapter_outlines ADD COLUMN info_delivery TEXT")
+        if "character_development" not in columns:
+            await db.execute("ALTER TABLE chapter_outlines ADD COLUMN character_development TEXT")
+        if "setup_for_future" not in columns:
+            await db.execute("ALTER TABLE chapter_outlines ADD COLUMN setup_for_future TEXT")
+        if "core_conflict" not in columns:
+            await db.execute("ALTER TABLE chapter_outlines ADD COLUMN core_conflict TEXT")
 
         # scene_points 新增 scene_type
         cursor = await db.execute("PRAGMA table_info(scene_points)")
@@ -126,13 +170,17 @@ async def _migrate():
         if "scene_type" not in columns:
             await db.execute("ALTER TABLE scene_points ADD COLUMN scene_type TEXT")
 
-        # volume_outlines 新增 internal_rhythm, volume_hook
+        # volume_outlines 新增 internal_rhythm, volume_hook, volume_end_state, phases
         cursor = await db.execute("PRAGMA table_info(volume_outlines)")
         columns = [row[1] for row in await cursor.fetchall()]
         if "internal_rhythm" not in columns:
             await db.execute("ALTER TABLE volume_outlines ADD COLUMN internal_rhythm TEXT")
         if "volume_hook" not in columns:
             await db.execute("ALTER TABLE volume_outlines ADD COLUMN volume_hook TEXT")
+        if "volume_end_state" not in columns:
+            await db.execute("ALTER TABLE volume_outlines ADD COLUMN volume_end_state TEXT")
+        if "phases" not in columns:
+            await db.execute("ALTER TABLE volume_outlines ADD COLUMN phases TEXT")
 
         # chapters 新增 self_review_status, emotion_peak
         cursor = await db.execute("PRAGMA table_info(chapters)")
@@ -141,6 +189,12 @@ async def _migrate():
             await db.execute("ALTER TABLE chapters ADD COLUMN self_review_status TEXT")
         if "emotion_peak" not in columns:
             await db.execute("ALTER TABLE chapters ADD COLUMN emotion_peak TEXT")
+
+        # chat_history 新增 created_at
+        cursor = await db.execute("PRAGMA table_info(chat_history)")
+        columns = [row[1] for row in await cursor.fetchall()]
+        if "created_at" not in columns:
+            await db.execute("ALTER TABLE chat_history ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
 
         # characters 新增 spans_all_volumes
         cursor = await db.execute("PRAGMA table_info(characters)")
@@ -195,12 +249,19 @@ async def _migrate():
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_timeline_unique ON timeline(project_id, chapter_number)"
             )
 
-        # === FTS5 重建（为已有数据补索引）===
+        # === FTS5 条件重建（仅在索引缺失时重建）===
         cursor = await db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='chapters_fts'"
         )
         if await cursor.fetchone():
-            await db.execute("INSERT INTO chapters_fts(chapters_fts) VALUES('rebuild')")
+            # 对比 FTS 索引行数与 chapters 行数，不一致时才重建
+            fts_count = await db.execute("SELECT count(*) FROM chapters_fts")
+            fts_n = (await fts_count.fetchone())[0]
+            ch_count = await db.execute("SELECT count(*) FROM chapters")
+            ch_n = (await ch_count.fetchone())[0]
+            if fts_n != ch_n:
+                await db.execute("INSERT INTO chapters_fts(chapters_fts) VALUES('rebuild')")
+                logger.info("FTS5 索引已重建 (fts=%d, chapters=%d)", fts_n, ch_n)
 
         # 设定库表
         cursor = await db.execute(
@@ -243,6 +304,9 @@ async def _migrate():
             """)
 
         await db.commit()
+    except Exception as e:
+        logger.error("数据库迁移失败: %s", e, exc_info=True)
+        # 迁移失败不阻断启动，但记录错误
     finally:
         await db.close()
 
@@ -319,6 +383,11 @@ CREATE TABLE IF NOT EXISTS chapter_outlines (
     hooks TEXT,
     rhythm_type TEXT,
     chapter_opening TEXT,
+    plot_points TEXT,
+    core_conflict TEXT,
+    info_delivery TEXT,
+    character_development TEXT,
+    setup_for_future TEXT,
     version INTEGER DEFAULT 1,
     source TEXT DEFAULT 'extracted',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

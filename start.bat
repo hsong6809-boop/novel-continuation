@@ -9,56 +9,67 @@ echo    Novel Continuation System - Starting
 echo  ========================================
 echo.
 
-echo [1/4] Checking Python...
-python --version >nul 2>&1
-if errorlevel 1 (
-    echo [ERROR] Python not found. Install Python 3.10+
-    pause
-    exit /b 1
+echo [1/5] Cleaning up...
+:: Kill processes on ports 8000 and 5173
+for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr ":8000 " ^| findstr "LISTENING"') do (
+    taskkill /F /PID %%a >nul 2>&1
 )
-echo       OK
-
-echo [2/4] Checking Node.js...
-node --version >nul 2>&1
-if errorlevel 1 (
-    echo [ERROR] Node.js not found. Install Node.js 18+
-    pause
-    exit /b 1
+for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr ":5173 " ^| findstr "LISTENING"') do (
+    taskkill /F /PID %%a >nul 2>&1
 )
-echo       OK
-
-echo [3/4] Installing backend dependencies...
+:: Clean Python cache
 cd /d "%~dp0backend"
-pip install -r requirements.txt -q 2>nul
+for /f "delims=" %%d in ('dir /s /b /ad __pycache__ 2^>nul') do rd /s /q "%%d" >nul 2>&1
+cd /d "%~dp0"
+echo       Cleanup done.
+
+echo.
+echo [2/5] Checking Python venv...
+if not exist "%~dp0backend\.venv\Scripts\python.exe" (
+    echo       venv not found, creating...
+    python -m venv "%~dp0backend\.venv"
+    if errorlevel 1 (
+        echo [ERROR] Failed to create venv.
+        pause
+        exit /b 1
+    )
+)
 echo       OK
 
-echo [4/4] Installing frontend dependencies...
+echo.
+echo [3/5] Installing backend dependencies...
+cd /d "%~dp0backend"
+call .venv\Scripts\pip.exe install -r requirements.txt -q 2>nul
+echo       OK
+
+echo.
+echo [4/5] Installing frontend dependencies...
 cd /d "%~dp0frontend"
-call npm install
+call npm install --silent 2>nul
 echo       OK
 
 echo.
 echo  ========================================
 echo    Starting services...
-echo    Browser will open automatically
-echo    Press Ctrl+C to stop
 echo  ========================================
 echo.
 
-:: Start backend in a separate window
+echo [5/5] Starting backend...
 cd /d "%~dp0backend"
-start "novel-backend" cmd /k "title Novel Backend && python main.py"
+start "Novel Backend" cmd /k ".venv\Scripts\python.exe main.py"
+echo       Waiting for backend...
+timeout /t 8 /nobreak >nul
 
-:: Wait for backend to be ready
-echo Waiting for backend to start...
-timeout /t 3 /nobreak >nul
-
-:: Start frontend (with open: true in vite.config, browser opens automatically)
+echo       Starting frontend (browser will open automatically)...
 cd /d "%~dp0frontend"
-echo Starting frontend and opening browser...
-call npm run dev
-if errorlevel 1 (
-    echo.
-    echo [ERROR] Frontend failed to start
-    pause
-)
+start "Novel Frontend" cmd /k "npm run dev"
+
+echo.
+echo  ========================================
+echo    All services started!
+echo    Backend:  http://localhost:8000
+echo    Frontend: http://localhost:5173
+echo  ========================================
+echo.
+echo  You can close this window.
+pause

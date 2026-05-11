@@ -53,8 +53,11 @@ async def create_setting(project_id: int, data: dict) -> dict:
         )
         await db.commit()
         new_id = cursor.lastrowid
-    # ON CONFLICT DO UPDATE 时 lastrowid 可能为 0，回退到按唯一键查询
-    result = await get_setting(project_id, new_id) if new_id else None
+    # ON CONFLICT DO UPDATE 时 lastrowid 为 0，直接走唯一键查询，跳过无效的 id=0 查询
+    if new_id:
+        result = await get_setting(project_id, new_id)
+    else:
+        result = None
     if not result:
         async with get_db_ctx() as db2:
             cursor2 = await db2.execute(

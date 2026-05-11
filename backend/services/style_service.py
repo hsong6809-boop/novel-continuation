@@ -3,6 +3,7 @@ import logging
 from models.database import get_db_ctx
 from services.llm_client import chat_completion, extract_content
 from utils.prompt_manager import format_prompt
+from utils.cache import invalidate_project
 
 logger = logging.getLogger(__name__)
 
@@ -76,61 +77,8 @@ async def analyze_volume_style(project_id: int, volume_number: int) -> dict:
             )
         await db.commit()
 
+    invalidate_project(project_id)
     return {"volume_number": volume_number, "analysis": analysis}
-
-
-async def check_style_deviation(project_id: int, chapter: int) -> dict | None:
-    """检查新章节的风格是否偏离基线。返回偏差描述或 None。"""
-    async with get_db_ctx() as db:
-        # 找到该章节所属卷的基线
-        cursor = await db.execute(
-            """SELECT sb.analysis FROM style_baselines sb
-               JOIN volume_outlines vo ON sb.project_id=vo.project_id AND sb.volume_number=vo.volume_number
-               WHERE sb.project_id=? AND vo.chapter_start<=? AND vo.chapter_end>=?
-               AND sb.is_baseline=1
-               ORDER BY sb.created_at DESC LIMIT 1""",
-            (project_id, chapter, chapter),
-        )
-        baseline_row = await cursor.fetchone()
-        if not baseline_row:
-            return None
-        baseline = baseline_row["analysis"]
-
-        # 取当前章节内容
-        cursor = await db.execute(
-            "SELECT content FROM chapters WHERE project_id=? AND chapter_number=?",
-            (project_id, chapter),
-        )
-        ch_row = await cursor.fetchone()
-        if not ch_row or not ch_row["content"]:
-            return None
-        content = ch_row["content"][:2000]
-
-    context = f"""## 基线风格
-{baseline}
-
-## 当前章节（第{chapter}章，前2000字）
-{content}
-
-## 任务
-对比当前章节与基线风格，判断是否存在明显偏差。
-如果有偏差，简要描述偏差之处（如：叙事视角变化、对话风格不同、节奏差异等）。
-如果没有明显偏差，返回空字符串。
-
-请直接输出文字描述，不要输出 JSON。"""
-
-    system = format_prompt("style_analysis", context=context)
-    messages = [{"role": "user", "content": system}]
-
-    try:
-        response = await chat_completion(messages, temperature=0.3, max_tokens=512)
-        result = extract_content(response).strip()
-        if result:
-            logger.info("风格偏差检测: project=%s chapter=%s 偏差=%s", project_id, chapter, result[:100])
-        return result if result else None
-    except Exception:
-        logger.warning("风格偏差检测失败: project=%s chapter=%s", project_id, chapter, exc_info=True)
-        return None
 
 
 async def auto_analyze_if_volume_complete(project_id: int, chapter: int) -> dict | None:

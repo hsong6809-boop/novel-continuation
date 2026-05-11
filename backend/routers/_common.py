@@ -15,8 +15,10 @@ def _filter_fields(data: dict, whitelist: set) -> dict:
 # ========== 字段白名单 ==========
 
 PROJECT_FIELDS = {"name", "genre", "description", "model_provider", "model_name",
-                  "target_words", "volume_summaries", "style_notes", "platform", "notes"}
-CHAPTER_OUTLINE_FIELDS = {"title", "core_objective", "emotional_arc", "hooks", "rhythm_type", "chapter_opening"}
+                  "target_words", "volume_summaries", "style_notes", "platform", "notes",
+                  "style_ref_chapters"}
+CHAPTER_OUTLINE_FIELDS = {"title", "core_objective", "emotional_arc", "hooks", "rhythm_type", "chapter_opening",
+                         "plot_points", "core_conflict", "info_delivery", "character_development", "setup_for_future"}
 CHAPTER_FIELDS = {"title", "content", "status", "volume_label", "arc_label"}
 CHARACTER_FIELDS = {"name", "role", "age", "personality", "speech_style", "appearance",
                     "background", "relationships", "character_arc_summary", "spans_all_volumes"}

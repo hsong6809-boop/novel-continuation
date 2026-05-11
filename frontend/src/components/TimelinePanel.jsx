@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Clock, Calendar, Plus, Save, Trash2, Pencil, X, Loader2 } from 'lucide-react';
-import { listTimeline } from '../api/client';
-import api from '../api/client';
+import { listTimeline, createTimeline, updateTimeline, deleteTimeline } from '../api/client';
 import { useToast } from './ui/Toast';
 
 function EventForm({ form, setForm, onSave, onCancel, saving }) {
@@ -92,7 +91,7 @@ export default function TimelinePanel({ project }) {
   async function handleSaveEdit(id) {
     setSaving(true);
     try {
-      await api.put(`/projects/${project.id}/timeline/${id}`, editForm);
+      await updateTimeline(project.id, id, editForm);
       setEditingId(null);
       await load();
     } catch (e) {
@@ -106,7 +105,7 @@ export default function TimelinePanel({ project }) {
     if (!newForm.story_time_description.trim()) { toast.warning('时间描述不能为空'); return; }
     setSaving(true);
     try {
-      await api.post(`/projects/${project.id}/timeline`, newForm);
+      await createTimeline(project.id, newForm);
       setShowNewForm(false);
       setNewForm({ story_time_description: '', story_date: '', summary: '' });
       await load();
@@ -120,7 +119,7 @@ export default function TimelinePanel({ project }) {
   async function handleDelete(id) {
     if (!await toast.confirm('确定删除此时间线事件？')) return;
     try {
-      await api.delete(`/projects/${project.id}/timeline/${id}`);
+      await deleteTimeline(project.id, id);
       await load();
     } catch (e) {
       toast.error('删除失败');

@@ -2,30 +2,54 @@
 import json
 import logging
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from typing import List
 from models.database import get_db_ctx
-from models.schemas import ChapterOut, ChapterUpdate, GenerateRequest
+from models.schemas import ChapterOut, ChapterListOut, ChapterUpdate, GenerateRequest
 from ._common import _filter_fields, CHAPTER_FIELDS
 from utils.text_utils import count_chinese_words
+from utils.cache import invalidate_project, invalidate_all
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects", tags=["chapters"])
 
 
-@router.get("/{project_id}/chapters", response_model=List[ChapterOut])
+@router.get("/{project_id}/chapters")
 async def list_chapters(project_id: int):
-    async with get_db_ctx() as db:
-        # 验证项目存在
-        cursor = await db.execute("SELECT id FROM projects WHERE id=?", (project_id,))
-        if not await cursor.fetchone():
-            raise HTTPException(404, "项目不存在")
-        cursor = await db.execute(
-            "SELECT * FROM chapters WHERE project_id=? ORDER BY chapter_number",
-            (project_id,),
-        )
-        return [dict(r) for r in await cursor.fetchall()]
+    """获取章节列表（不含正文，避免大响应体）"""
+    try:
+        async with get_db_ctx() as db:
+            cursor = await db.execute("SELECT id FROM projects WHERE id=?", (project_id,))
+            if not await cursor.fetchone():
+                raise HTTPException(404, "项目不存在")
+            cursor = await db.execute(
+                "SELECT id, project_id, chapter_number, title, word_count, "
+                "summary, status, volume_label, arc_label, "
+                "self_review_status, emotion_peak, created_at "
+                "FROM chapters WHERE project_id=? ORDER BY chapter_number",
+                (project_id,),
+            )
+            rows = await cursor.fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                # 确保所有字段可 JSON 序列化
+                for k, v in d.items():
+                    if v is None:
+                        continue
+                    elif isinstance(v, (int, float, str, bool)):
+                        continue
+                    else:
+                        d[k] = str(v)
+                result.append(d)
+            logger.info("list_chapters: project=%d, count=%d", project_id, len(result))
+            return JSONResponse(content=result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("list_chapters 失败: project=%d, error=%s", project_id, e, exc_info=True)
+        raise HTTPException(500, f"获取章节列表失败: {type(e).__name__}: {e}")
 
 
 @router.get("/{project_id}/chapters/{chapter}", response_model=ChapterOut)
@@ -60,6 +84,7 @@ async def update_chapter(project_id: int, chapter: int, data: ChapterUpdate):
             values,
         )
         await db.commit()
+        invalidate_project(project_id)
         cursor = await db.execute(
             "SELECT * FROM chapters WHERE project_id=? AND chapter_number=?",
             (project_id, chapter),
@@ -142,3 +167,32 @@ async def restore_chapter_version(project_id: int, chapter: int, version_id: int
     if "error" in result:
         raise HTTPException(400, result["error"])
     return result
+
+
+@router.delete("/{project_id}/chapters/{chapter}")
+async def delete_chapter(project_id: int, chapter: int):
+    """删除指定章节（正文、章纲、场景要点、版本记录一并删除）"""
+    if chapter < 1:
+        raise HTTPException(400, "章节号必须大于0")
+    async with get_db_ctx() as db:
+        # 检查章节是否存在
+        cursor = await db.execute(
+            "SELECT id FROM chapters WHERE project_id=? AND chapter_number=?",
+            (project_id, chapter),
+        )
+        if not await cursor.fetchone():
+            raise HTTPException(404, "章节不存在")
+        # 删除关联数据
+        await db.execute("DELETE FROM chapter_outlines WHERE project_id=? AND chapter_number=?", (project_id, chapter))
+        await db.execute("DELETE FROM scene_points WHERE project_id=? AND chapter_number=?", (project_id, chapter))
+        await db.execute("DELETE FROM chapter_versions WHERE project_id=? AND chapter_number=?", (project_id, chapter))
+        await db.execute("DELETE FROM character_snapshots WHERE project_id=? AND chapter_number=?", (project_id, chapter))
+        await db.execute("DELETE FROM timeline WHERE project_id=? AND chapter_number=?", (project_id, chapter))
+        await db.execute("DELETE FROM chapters WHERE project_id=? AND chapter_number=?", (project_id, chapter))
+        # 更新项目进度
+        from services.chapter_service import update_project_progress
+        await update_project_progress(db, project_id)
+        await db.commit()
+        invalidate_project(project_id)
+        invalidate_all()  # 清除项目列表缓存
+        return {"success": True, "chapter_number": chapter}

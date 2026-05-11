@@ -31,7 +31,7 @@ export default function ProjectList() {
     if (!form.name.trim()) return;
     try {
       const project = await createProject(form);
-      setProjects([project, ...projects]);
+      setProjects(prev => [project, ...prev]);
       setForm({ name: '', genre: '', description: '', target_words: 200000, platform: '', notes: '' });
       setShowCreate(false);
     } catch (e) {
@@ -43,7 +43,7 @@ export default function ProjectList() {
     if (!await toast.confirm(`确定删除项目「${name}」？此操作不可恢复。`)) return;
     try {
       await deleteProject(id);
-      setProjects(projects.filter(p => p.id !== id));
+      setProjects(prev => prev.filter(p => p.id !== id));
     } catch (e) {
       toast.error('删除失败');
     }
@@ -93,32 +93,30 @@ export default function ProjectList() {
         </div>
       </div>
 
-      {/* 功能亮点 */}
-      {projects.length === 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
-          <div className="ink-card rounded-xl p-5 text-center">
-            <div className="w-10 h-10 rounded-lg bg-jade-500/10 flex items-center justify-center mx-auto mb-3">
-              <Scroll className="w-5 h-5 text-jade-600" />
-            </div>
-            <h3 className="text-h3 text-ink-700 mb-2">大纲规划</h3>
-            <p className="text-sm text-ink-500 leading-relaxed">从总纲到分卷到章纲，层层递进。AI 生成，你来审定。</p>
+      {/* 功能亮点 — 始终显示 */}
+      <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 ${projects.length === 0 ? 'mb-12' : 'mb-6'}`}>
+        <div className={`ink-card rounded-xl text-center ${projects.length === 0 ? 'p-5' : 'p-3'}`}>
+          <div className={`rounded-lg bg-jade-500/10 flex items-center justify-center mx-auto ${projects.length === 0 ? 'w-10 h-10 mb-3' : 'w-7 h-7 mb-2'}`}>
+            <Scroll className={`text-jade-600 ${projects.length === 0 ? 'w-5 h-5' : 'w-4 h-4'}`} />
           </div>
-          <div className="ink-card rounded-xl p-5 text-center">
-            <div className="w-10 h-10 rounded-lg bg-vermillion-600/10 flex items-center justify-center mx-auto mb-3">
-              <PenTool className="w-5 h-5 text-vermillion-600" />
-            </div>
-            <h3 className="text-h3 text-ink-700 mb-2">智能续写</h3>
-            <p className="text-sm text-ink-500 leading-relaxed">基于上下文、角色、伏笔的精准续写。生成即编辑，改到满意为止。</p>
-          </div>
-          <div className="ink-card rounded-xl p-5 text-center">
-            <div className="w-10 h-10 rounded-lg bg-gold-500/10 flex items-center justify-center mx-auto mb-3">
-              <BookOpen className="w-5 h-5 text-gold-600" />
-            </div>
-            <h3 className="text-h3 text-ink-700 mb-2">全程可控</h3>
-            <p className="text-sm text-ink-500 leading-relaxed">角色档案、伏笔管理、时间线追踪。每个细节都在你的掌控之中。</p>
-          </div>
+          <h3 className={`text-ink-700 ${projects.length === 0 ? 'text-h3 mb-2' : 'text-sm font-medium mb-1'}`}>大纲规划</h3>
+          <p className={`text-ink-500 leading-relaxed ${projects.length === 0 ? 'text-sm' : 'text-xs'}`}>从总纲到分卷到章纲，层层递进。AI 生成，你来审定。</p>
         </div>
-      )}
+        <div className={`ink-card rounded-xl text-center ${projects.length === 0 ? 'p-5' : 'p-3'}`}>
+          <div className={`rounded-lg bg-vermillion-600/10 flex items-center justify-center mx-auto ${projects.length === 0 ? 'w-10 h-10 mb-3' : 'w-7 h-7 mb-2'}`}>
+            <PenTool className={`text-vermillion-600 ${projects.length === 0 ? 'w-5 h-5' : 'w-4 h-4'}`} />
+          </div>
+          <h3 className={`text-ink-700 ${projects.length === 0 ? 'text-h3 mb-2' : 'text-sm font-medium mb-1'}`}>智能续写</h3>
+          <p className={`text-ink-500 leading-relaxed ${projects.length === 0 ? 'text-sm' : 'text-xs'}`}>基于上下文、角色、伏笔的精准续写。生成即编辑，改到满意为止。</p>
+        </div>
+        <div className={`ink-card rounded-xl text-center ${projects.length === 0 ? 'p-5' : 'p-3'}`}>
+          <div className={`rounded-lg bg-gold-500/10 flex items-center justify-center mx-auto ${projects.length === 0 ? 'w-10 h-10 mb-3' : 'w-7 h-7 mb-2'}`}>
+            <BookOpen className={`text-gold-600 ${projects.length === 0 ? 'w-5 h-5' : 'w-4 h-4'}`} />
+          </div>
+          <h3 className={`text-ink-700 ${projects.length === 0 ? 'text-h3 mb-2' : 'text-sm font-medium mb-1'}`}>全程可控</h3>
+          <p className={`text-ink-500 leading-relaxed ${projects.length === 0 ? 'text-sm' : 'text-xs'}`}>角色档案、伏笔管理、时间线追踪。每个细节都在你的掌控之中。</p>
+        </div>
+      </div>
 
       {/* 操作栏 */}
       <div className="flex items-center justify-between mb-8">

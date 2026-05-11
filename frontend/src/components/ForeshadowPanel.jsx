@@ -1,13 +1,19 @@
 import { useState, useEffect } from 'react';
 import { Eye, EyeOff, Plus, Save, Trash2, Loader2 } from 'lucide-react';
-import api from '../api/client';
+import { listForeshadowing, updateForeshadowing, createForeshadowing } from '../api/client';
 import { useToast } from './ui/Toast';
 
 const STATUS_CONFIG = {
   active: { label: '活跃', color: 'text-gold-600', bg: 'bg-gold-500/10' },
   resolved: { label: '已回收', color: 'text-jade-700', bg: 'bg-green-400/10' },
-  abandoned: { label: '已废弃', color: 'text-ink-400', bg: 'bg-gray-500/10' },
+  abandoned: { label: '已废弃', color: 'text-ink-400', bg: 'bg-gray-500/10', apiStatus: 'dropped' },
 };
+
+// API 返回的 dropped 状态映射回前端 abandoned
+const API_STATUS_MAP = { dropped: 'abandoned' };
+
+// 活跃伏笔排序：重要性权重 → 章节号
+const IMPORTANCE_ORDER = { high: 0, normal: 1, medium: 1, low: 2 };
 
 const IMPORTANCE_CONFIG = {
   high: { label: '高', color: 'text-red-400', bg: 'bg-red-400/10' },
@@ -20,16 +26,49 @@ export default function ForeshadowPanel({ project }) {
   const [filter, setFilter] = useState('active');
   const [loading, setLoading] = useState(true);
   const [showNewForm, setShowNewForm] = useState(false);
-  const [newForm, setNewForm] = useState({ description: '', importance: 'medium', expected_reveal_chapter: '' });
+  const [newForm, setNewForm] = useState({ description: '', importance: 'normal', expected_reveal_chapter: '' });
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
   useEffect(() => { load(); }, [project.id, filter]);
 
+  function getApiStatus(statusKey) {
+    return STATUS_CONFIG[statusKey]?.apiStatus || statusKey;
+  }
+
   async function load() {
     setLoading(true);
     try {
-      const data = await listForeshadowing(project.id, filter);
+      let data = await listForeshadowing(project.id, getApiStatus(filter));
+
+      // API 状态映射（dropped → abandoned）
+      data = data.map(f => ({
+        ...f,
+        status: API_STATUS_MAP[f.status] || f.status,
+      }));
+
+      if (filter === 'active') {
+        // 活跃伏笔：按描述去重（保留最早埋下的）
+        const seen = new Map();
+        for (const f of data) {
+          const key = f.description.trim();
+          if (!seen.has(key) || f.planted_chapter < seen.get(key).planted_chapter) {
+            seen.set(key, f);
+          }
+        }
+        data = Array.from(seen.values());
+        // 排序：重要性（高→中→低）→ 章节号
+        data.sort((a, b) => {
+          const ia = IMPORTANCE_ORDER[a.importance] ?? 1;
+          const ib = IMPORTANCE_ORDER[b.importance] ?? 1;
+          if (ia !== ib) return ia - ib;
+          return (a.planted_chapter || 0) - (b.planted_chapter || 0);
+        });
+      } else {
+        // 已回收/已废弃：按章节顺序
+        data.sort((a, b) => (a.planted_chapter || 0) - (b.planted_chapter || 0));
+      }
+
       setForeshadows(data);
     } catch (e) {
       console.error('加载伏笔失败:', e);
@@ -40,7 +79,7 @@ export default function ForeshadowPanel({ project }) {
 
   async function handleStatusChange(id, newStatus) {
     try {
-      await updateForeshadowing(project.id, id, { status: newStatus });
+      await updateForeshadowing(project.id, id, { status: getApiStatus(newStatus) });
       await load();
     } catch (e) {
       toast.error('更新失败');
@@ -51,13 +90,13 @@ export default function ForeshadowPanel({ project }) {
     if (!newForm.description.trim()) { toast.warning('伏笔描述不能为空'); return; }
     setSaving(true);
     try {
-      await api.post(`/projects/${project.id}/foreshadowing`, {
+      await createForeshadowing(project.id, {
         description: newForm.description,
         importance: newForm.importance,
         expected_reveal_chapter: newForm.expected_reveal_chapter ? parseInt(newForm.expected_reveal_chapter) : null,
       });
       setShowNewForm(false);
-      setNewForm({ description: '', importance: 'medium', expected_reveal_chapter: '' });
+      setNewForm({ description: '', importance: 'normal', expected_reveal_chapter: '' });
       await load();
     } catch (e) {
       toast.error('创建失败: ' + (e.response?.data?.detail || e.message));
@@ -129,7 +168,7 @@ export default function ForeshadowPanel({ project }) {
                 className="w-full input-surface border border-border-default rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-vermillion-500/40 transition"
               >
                 <option value="high">高</option>
-                <option value="medium">中</option>
+                <option value="normal">中</option>
                 <option value="low">低</option>
               </select>
             </div>

@@ -10,6 +10,7 @@ from models.schemas import (
     VolumeOutlineCreate,
 )
 from ._common import _filter_fields, CHAPTER_OUTLINE_FIELDS
+from utils.cache import invalidate_project, get_cached, set_cached, outlines_key
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,9 @@ async def generate_volume_outlines(project_id: int):
 
 @router.get("/{project_id}/outlines/chapters", response_model=List[ChapterOutlineOut])
 async def list_outlines(project_id: int):
+    cached = get_cached(outlines_key(project_id))
+    if cached is not None:
+        return cached
     async with get_db_ctx() as db:
         # 验证项目存在
         cursor = await db.execute("SELECT id FROM projects WHERE id=?", (project_id,))
@@ -111,13 +115,16 @@ async def list_outlines(project_id: int):
             "SELECT * FROM chapter_outlines WHERE project_id=? ORDER BY chapter_number",
             (project_id,),
         )
-        return [dict(r) for r in await cursor.fetchall()]
+        result = [dict(r) for r in await cursor.fetchall()]
+        set_cached(outlines_key(project_id), result)
+        return result
 
 
 @router.get("/{project_id}/outlines/chapters/{chapter}")
 async def get_outline(project_id: int, chapter: int):
     if chapter < 1:
         raise HTTPException(400, "章节号必须大于0")
+    import json as _json
     async with get_db_ctx() as db:
         cursor = await db.execute(
             "SELECT * FROM chapter_outlines WHERE project_id=? AND chapter_number=?",
@@ -126,23 +133,34 @@ async def get_outline(project_id: int, chapter: int):
         outline = await cursor.fetchone()
         if not outline:
             raise HTTPException(404, "章纲不存在")
+        outline_dict = dict(outline)
+        # plot_points 从 JSON 字符串解析为列表
+        if outline_dict.get("plot_points") and isinstance(outline_dict["plot_points"], str):
+            try:
+                outline_dict["plot_points"] = _json.loads(outline_dict["plot_points"])
+            except (_json.JSONDecodeError, TypeError):
+                pass
         # 同时返回场景要点
         cursor2 = await db.execute(
             "SELECT * FROM scene_points WHERE project_id=? AND chapter_number=? ORDER BY scene_order",
             (project_id, chapter),
         )
         scenes = [dict(r) for r in await cursor2.fetchall()]
-        return {"outline": dict(outline), "scenes": scenes}
+        return {"outline": outline_dict, "scenes": scenes}
 
 
 @router.put("/{project_id}/outlines/chapters/{chapter}")
 async def update_outline(project_id: int, chapter: int, data: ChapterOutlineUpdate):
     if chapter < 1:
         raise HTTPException(400, "章节号必须大于0")
+    import json as _json
     async with get_db_ctx() as db:
         fields = _filter_fields(data.model_dump(exclude_unset=True), CHAPTER_OUTLINE_FIELDS)
         if not fields:
             raise HTTPException(400, "没有需要更新的字段")
+        # plot_points 需要序列化为 JSON 字符串存储
+        if "plot_points" in fields and isinstance(fields["plot_points"], list):
+            fields["plot_points"] = _json.dumps(fields["plot_points"], ensure_ascii=False)
         set_clause = ", ".join(f"{k}=?" for k in fields)
         set_clause += ", source='manual'"
         values = list(fields.values()) + [project_id, chapter]
@@ -151,6 +169,7 @@ async def update_outline(project_id: int, chapter: int, data: ChapterOutlineUpda
             values,
         )
         await db.commit()
+        invalidate_project(project_id)
         cursor = await db.execute(
             "SELECT * FROM chapter_outlines WHERE project_id=? AND chapter_number=?",
             (project_id, chapter),
@@ -187,6 +206,37 @@ async def batch_generate_outlines(project_id: int, data: dict):
     return result
 
 
+@router.post("/{project_id}/outlines/chapters/generate-next")
+async def generate_next_outlines(project_id: int, data: dict):
+    """生成后续 X 章章纲：从已有章纲最后一章之后开始生成"""
+    from services.outline_service import generate_next_chapter_outlines
+    count = data.get("count", 5)
+    if not isinstance(count, int) or count < 1 or count > 50:
+        raise HTTPException(400, "count 必须是 1~50 之间的整数")
+    custom = data.get("custom_instructions")
+    result = await generate_next_chapter_outlines(project_id, count, custom)
+    if "error" in result:
+        raise HTTPException(500, result["error"])
+    return result
+
+
+@router.delete("/{project_id}/outlines/chapters/{chapter}")
+async def delete_outline(project_id: int, chapter: int):
+    """删除指定章节的章纲"""
+    if chapter < 1:
+        raise HTTPException(400, "章节号必须大于0")
+    async with get_db_ctx() as db:
+        cursor = await db.execute(
+            "DELETE FROM chapter_outlines WHERE project_id=? AND chapter_number=?",
+            (project_id, chapter),
+        )
+        await db.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(404, "章纲不存在")
+        invalidate_project(project_id)
+        return {"success": True, "chapter_number": chapter}
+
+
 # ========== 场景要点 ==========
 
 @router.post("/{project_id}/outlines/chapters/{chapter}/scenes", response_model=ScenePointOut)
@@ -203,6 +253,7 @@ async def add_scene_point(project_id: int, chapter: int, data: ScenePointCreate)
              getattr(data, "scene_type", None)),
         )
         await db.commit()
+        invalidate_project(project_id)
         cursor = await db.execute("SELECT * FROM scene_points WHERE id=?", (cursor.lastrowid,))
         return dict(await cursor.fetchone())
 
@@ -228,6 +279,7 @@ async def replace_scenes(project_id: int, chapter: int, data: List[ScenePointRep
                  getattr(s, "scene_type", None)),
             )
         await db.commit()
+        invalidate_project(project_id)
         # 返回更新后的场景列表
         cursor = await db.execute(
             "SELECT * FROM scene_points WHERE project_id=? AND chapter_number=? ORDER BY scene_order",
@@ -241,8 +293,11 @@ async def delete_scene_point(project_id: int, chapter: int, order: int):
     if chapter < 1:
         raise HTTPException(400, "章节号必须大于0")
     async with get_db_ctx() as db:
-        await db.execute(
+        cursor = await db.execute(
             "DELETE FROM scene_points WHERE project_id=? AND chapter_number=? AND scene_order=?",
             (project_id, chapter, order),
         )
         await db.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(404, "场景要点不存在")
+        invalidate_project(project_id)

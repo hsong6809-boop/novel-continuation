@@ -9,20 +9,50 @@ function formatOutlineToText(data) {
   // 处理 { content: "..." } 格式（保存后的纯文本）
   if (data.content && typeof data.content === 'string') return data.content;
   const fieldLabels = {
-    premise: '故事前提',
-    main_conflict: '主要矛盾',
+    start_point: '起点',
+    core_mainline: '核心主线',
+    end_point: '终点方向',
+    world_type: '世界观类型',
     themes: '核心主题',
-    character_arcs: '角色弧线',
-    story_structure: '故事结构',
-    future_directions: '后续方向',
-    rhythm_blueprint: '节奏蓝图',
-    core_appeal: '核心爽点',
+    main_conflict: '主要矛盾',
+  };
+  const keyInfoLabels = {
+    world_setting: '世界观设定',
+    power_system: '力量体系',
+    faction_landscape: '势力格局',
+    core_selling_point: '核心卖点',
+    main_characters: '角色关系网',
+    first_crisis: '第一个危机',
+    early_goals: '前期目标',
+    key_items: '关键道具/金手指',
   };
   const lines = [];
   for (const [key, label] of Object.entries(fieldLabels)) {
     if (data[key]) {
       lines.push(`【${label}】\n${data[key]}`);
     }
+  }
+  // 处理结构化的 key_info
+  const ki = data.key_info;
+  if (ki && typeof ki === 'object') {
+    const kiLines = [];
+    for (const [key, label] of Object.entries(keyInfoLabels)) {
+      if (ki[key]) {
+        kiLines.push(`  ${label}：${ki[key]}`);
+      }
+    }
+    if (kiLines.length > 0) {
+      lines.push(`【关键信息】\n${kiLines.join('\n')}`);
+    }
+  } else if (ki && typeof ki === 'string') {
+    lines.push(`【关键信息】\n${ki}`);
+  }
+  // 兼容旧格式
+  if (data.premise && !data.start_point) {
+    lines.push(`【故事前提】\n${data.premise}`);
+  }
+  if (data.character_arcs && !data.core_mainline) {
+    lines.push(`【角色弧线】\n${data.character_arcs}`);
   }
   return lines.join('\n\n');
 }

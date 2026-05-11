@@ -126,4 +126,5 @@ async def review_chapter(project_id: int, chapter: int) -> dict:
         )
         await db.commit()
 
+    invalidate_project(project_id)
     return data

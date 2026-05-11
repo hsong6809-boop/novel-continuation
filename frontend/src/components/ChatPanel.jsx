@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { MessageCircle, Send, Loader2, Bot, User, Sparkles, Users, Globe, Palette } from 'lucide-react';
+import { MessageCircle, Send, Loader2, Bot, User, Sparkles, Users, Globe, Palette, Brain, ChevronUp, ChevronDown } from 'lucide-react';
 import { listChat, sendChat } from '../api/client';
 
 let msgIdCounter = 0;
@@ -36,6 +36,7 @@ export default function ChatPanel({ project }) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [mode, setMode] = useState(null);
+  const [expandedReasoning, setExpandedReasoning] = useState({});
   const bottomRef = useRef(null);
 
   useEffect(() => { load(); }, [project.id]);
@@ -68,6 +69,7 @@ export default function ChatPanel({ project }) {
       const assistantMsg = {
         role: 'assistant',
         content: res.reply,
+        reasoning: res.reasoning || '',
         created_at: new Date().toISOString(),
         _id: generateMsgId(),
       };
@@ -146,6 +148,23 @@ export default function ChatPanel({ project }) {
                   : 'input-surface border border-border-subtle text-ink-900'
               }`}
             >
+              {msg.role === 'assistant' && msg.reasoning && (
+                <div className="mb-2">
+                  <button
+                    onClick={() => setExpandedReasoning(prev => ({ ...prev, [msg._id]: !prev[msg._id] }))}
+                    className="flex items-center gap-1.5 text-xs text-ink-400 hover:text-ink-600 transition mb-1"
+                  >
+                    <Brain className="w-3.5 h-3.5" />
+                    深度思考
+                    {expandedReasoning[msg._id] ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
+                  {expandedReasoning[msg._id] && (
+                    <pre className="text-xs text-ink-500 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-surface-3/50 rounded-lg p-2 mb-2">
+                      {msg.reasoning}
+                    </pre>
+                  )}
+                </div>
+              )}
               <div className="whitespace-pre-wrap">{msg.role === 'assistant' ? stripMarkdown(msg.content) : msg.content}</div>
             </div>
             {msg.role === 'user' && (

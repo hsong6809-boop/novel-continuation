@@ -2,6 +2,9 @@
 
 缓存项目基本信息、角色列表、伏笔列表等高频读取数据。
 通过 TTL 自动过期 + 手动失效机制保证一致性。
+
+注意：本模块假设在 asyncio 单线程事件循环下运行，模块级 _cache 字典
+不具备线程安全。若未来引入多线程，需替换为 threading.Lock 保护。
 """
 import time
 from typing import Any
@@ -14,15 +17,29 @@ DEFAULT_TTL = 60
 
 
 def get_cached(key: str) -> Any | None:
-    """获取缓存值，过期返回 None"""
+    """获取缓存值，过期返回 None（同时清理过期条目）"""
     entry = _cache.get(key)
-    if entry and entry["expires_at"] > time.monotonic():
-        return entry["data"]
-    return None
+    if entry is None:
+        return None
+    if entry["expires_at"] <= time.monotonic():
+        del _cache[key]
+        return None
+    return entry["data"]
 
 
 def set_cached(key: str, data: Any, ttl: int = DEFAULT_TTL):
     """设置缓存值"""
+    if len(_cache) > 500:
+        now = time.monotonic()
+        # 先清理过期条目
+        expired = [k for k, v in _cache.items() if v.get("expires_at", 0) < now]
+        for k in expired:
+            del _cache[k]
+        # 如果仍然超过上限，按过期时间淘汰最早的
+        if len(_cache) > 500:
+            sorted_keys = sorted(_cache, key=lambda k: _cache[k].get("expires_at", 0))
+            for k in sorted_keys[:len(_cache) - 400]:
+                del _cache[k]
     _cache[key] = {
         "data": data,
         "expires_at": time.monotonic() + ttl,
@@ -51,9 +68,33 @@ def characters_key(project_id: int) -> str:
     return f"project:{project_id}:characters"
 
 
+def characters_ctx_key(project_id: int) -> str:
+    return f"project:{project_id}:characters:ctx"
+
+
 def foreshadowing_key(project_id: int) -> str:
     return f"project:{project_id}:foreshadowing"
 
 
+def foreshadowing_active_key(project_id: int) -> str:
+    return f"project:{project_id}:foreshadowing:active"
+
+
 def style_key(project_id: int) -> str:
     return f"project:{project_id}:style"
+
+
+def timeline_key(project_id: int) -> str:
+    return f"project:{project_id}:timeline"
+
+
+def outlines_key(project_id: int) -> str:
+    return f"project:{project_id}:outlines"
+
+
+def chapters_key(project_id: int) -> str:
+    return f"project:{project_id}:chapters"
+
+
+def projects_list_key() -> str:
+    return "projects:list"

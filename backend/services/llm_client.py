@@ -9,6 +9,34 @@ from utils.settings_cache import load_settings
 
 logger = logging.getLogger(__name__)
 
+# 模块级 HTTP 客户端（连接复用）
+_http_client: httpx.AsyncClient | None = None
+
+
+async def get_http_client(timeout: httpx.Timeout = None) -> httpx.AsyncClient:
+    """获取复用的 httpx.AsyncClient 单例（非流式请求复用）
+
+    单例使用宽松的默认超时，各请求通过 request-level timeout 精确控制。
+    """
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=httpx.Timeout(connect=30, read=300, write=30, pool=30))
+    return _http_client
+
+
+async def get_stream_client(timeout: httpx.Timeout = None) -> httpx.AsyncClient:
+    """流式请求使用独立客户端（timeout 不同，不能复用单例）"""
+    return httpx.AsyncClient(timeout=timeout or httpx.Timeout(connect=30, read=300, write=30, pool=30))
+
+
+async def close_http_client():
+    """关闭 HTTP 客户端（应用退出时调用）"""
+    global _http_client
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
+    _http_client = None
+
+
 MAX_RETRIES = 2
 RETRY_BASE_DELAY = 1.0  # 秒
 
@@ -126,10 +154,10 @@ async def chat_completion(messages: list, model: str = None,
     )
 
     async def do_request():
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-            resp.raise_for_status()
-            return resp.json()
+        client = await get_http_client()
+        resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
 
     return await _retry_loop(do_request)
 
@@ -156,7 +184,8 @@ async def chat_completion_stream(messages: list, model: str = None,
     )
 
     async def do_request():
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        client = await get_stream_client(timeout)
+        try:
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
@@ -168,24 +197,42 @@ async def chat_completion_stream(messages: list, model: str = None,
                     try:
                         chunk = json.loads(data_str)
                         delta = chunk["choices"][0].get("delta", {})
+                        # 深度思考内容（reasoning_content）
+                        reasoning = delta.get("reasoning_content", "")
+                        if reasoning:
+                            yield {"type": "reasoning", "content": reasoning}
+                        # 正文内容
                         text = delta.get("content", "")
                         if text:
-                            yield text
+                            yield {"type": "content", "content": text}
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
+        finally:
+            await client.aclose()
 
-    # 流式函数需要特殊处理重试
+    # 流式重试：仅在连接建立前失败时重试（ConnectError, HTTP 429/5xx），
+    # 流式传输中途断开（ReadTimeout）不重试，避免重复输出已 yield 的内容
     last_error = None
     for attempt in range(MAX_RETRIES + 1):
         try:
             async for text in do_request():
                 yield text
             return
-        except (httpx.HTTPStatusError, httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout) as e:
+        except httpx.ConnectError as e:
             last_error = e
             if attempt < MAX_RETRIES:
-                if isinstance(e, httpx.HTTPStatusError) and e.response.status_code < 500 and e.response.status_code != 429:
-                    raise
                 await asyncio.sleep(RETRY_BASE_DELAY * (2 ** attempt))
             else:
                 raise
+        except httpx.HTTPStatusError as e:
+            last_error = e
+            if e.response.status_code == 429 or e.response.status_code >= 500:
+                if attempt < MAX_RETRIES:
+                    await asyncio.sleep(RETRY_BASE_DELAY * (2 ** attempt))
+                else:
+                    raise
+            else:
+                raise
+        except (httpx.ReadTimeout, httpx.WriteTimeout):
+            # 流式中途超时不重试（部分内容已 yield，重试会重复）
+            raise

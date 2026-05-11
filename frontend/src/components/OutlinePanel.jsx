@@ -59,7 +59,7 @@ export default function OutlinePanel({ project, onRefresh, focusChapter }) {
       <div className="bg-surface-1 border border-border-subtle rounded-xl p-6">
         {activeSection === 'overall' && <OverallOutlineEditor project={project} />}
         {activeSection === 'volumes' && <VolumeOutlinePanel project={project} />}
-        {activeSection === 'chapters' && <ChapterOutlinePanel project={project} focusChapter={focusChapter} />}
+        {activeSection === 'chapters' && <ChapterOutlinePanel project={project} focusChapter={focusChapter} outlines={outlines} onOutlinesChange={setOutlines} />}
       </div>
     </div>
   );
